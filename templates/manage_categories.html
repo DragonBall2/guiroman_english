@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+   <meta charset="UTF-8">
+   <title>분류 관리</title>
+   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+   <style>
+       .button-group {
+           display: flex;
+           justify-content: space-between;
+           margin-top: 10px;
+       }
+       .button-group button,
+       .button-group input[type="submit"] {
+           flex: 1;
+           margin-right: 10px;
+       }
+       .button-group button:last-child {
+           margin-right: 0;
+       }
+   </style>
+</head>
+<body>
+   <div class="form-container">
+       <h1>SSAT 출제 시스템</h1>
+       <h1>분류 관리</h1>
+
+
+       {% with messages = get_flashed_messages(with_categories=true) %}
+           {% if messages %}
+               <ul class="flashes">
+                   {% for category, message in messages %}
+                       <li class="{{ category }}">{{ message }}</li>
+                   {% endfor %}
+               </ul>
+           {% endif %}
+       {% endwith %}
+
+
+       <form action="{{ url_for('manage_categories') }}" method="POST">
+           <label>분류 JSON:</label><br>
+           <textarea name="categories_content" rows="20" style="width: 100%;">{{ categories }}</textarea><br>
+           <div class="button-group">
+               <input type="submit" value="저장">
+               <button type="button" onclick="window.location.href='{{ url_for('index') }}'">나가기</button>
+           </div>
+       </form>
+       <a href="{{ url_for('download_categories') }}" class="download-btn">분류 JSON 다운로드</a>
+   </div>
+</body>
+</html>

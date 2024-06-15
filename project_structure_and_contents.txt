@@ -1,0 +1,2024 @@
+Project structure
+-----------------
+./
+    app.py
+    templates/
+        login.html
+        index.html
+        edit_question.html
+        change_password.html
+        manage_categories.html
+        register.html
+    static/
+        styles.css
+
+./
+    app.py
+    ------
+    from flask import Flask, render_template, request, redirect, flash, url_for, send_file, jsonify
+    from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+    import json
+    import os
+    import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
+    from io import BytesIO
+    import base64
+    from werkzeug.security import generate_password_hash, check_password_hash
+    from datetime import datetime
+    
+    
+    app = Flask(__name__)
+    app.secret_key = 'your_secret_key'
+    
+    
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+    
+    
+    DATA_FILE = 'data.json'
+    USERS_FILE = 'users.json'
+    VOC_FILE = 'voc.json'
+    CATEGORIES_FILE = 'categories.json'
+    FONT_PATH = 'templates/NanumGothic.ttf'
+    
+    
+    if not os.path.exists(DATA_FILE):
+       with open(DATA_FILE, 'w', encoding='utf-8') as f:
+           json.dump([], f, ensure_ascii=False, indent=4)
+    
+    
+    if not os.path.exists(USERS_FILE):
+       with open(USERS_FILE, 'w', encoding='utf-8') as f:
+           json.dump([], f, ensure_ascii=False, indent=4)
+    
+    
+    if not os.path.exists(VOC_FILE):
+       with open(VOC_FILE, 'w', encoding='utf-8') as f:
+           json.dump([], f, ensure_ascii=False, indent=4)
+    
+    
+    if not os.path.exists(CATEGORIES_FILE):
+       with open(CATEGORIES_FILE, 'w', encoding='utf-8') as f:
+           json.dump({'categories': []}, f, ensure_ascii=False, indent=4)
+    
+    
+    class User(UserMixin):
+       def __init__(self, id):
+           self.id = id
+           self.password_hash = None
+    
+    
+       @staticmethod
+       def get(user_id):
+           with open(USERS_FILE, 'r', encoding='utf-8') as f:
+               users = json.load(f)
+           user = next((u for u in users if u['id'] == user_id), None)
+           if user:
+               user_obj = User(user['id'])
+               user_obj.password_hash = user['password']
+               return user_obj
+           return None
+    
+    
+       def set_password(self, password):
+           self.password_hash = generate_password_hash(password)
+    
+    
+       def check_password(self, password):
+           return check_password_hash(self.password_hash, password)
+    
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+       return User.get(user_id)
+    
+    
+    def autopct_format(values):
+       def my_format(pct):
+           total = sum(values)
+           val = int(round(pct*total/100.0))
+           return f'{pct:.1f}%\n({val:d})'
+       return my_format
+    
+    
+    def generate_category_pie_chart(data):
+        category_count = {}
+        total_questions = len(data)
+        for question in data:
+            if 'Category' in question and 'main' in question['Category']:
+                category = question['Category']['main'] if question['Category']['main'] else '미분류'
+                if category in category_count:
+                    category_count[category] += 1
+                else:
+                    category_count[category] = 1
+    
+        labels = list(category_count.keys())
+        sizes = list(category_count.values())
+    
+        fontprop = fm.FontProperties(fname=FONT_PATH, size=12)
+    
+        plt.figure(figsize=(6, 6))
+        plt.pie(sizes, labels=labels, autopct=autopct_format(sizes), startangle=140)
+    
+        # 라벨에 폰트 적용
+        for label in plt.gca().texts:
+            label.set_fontproperties(fontprop)
+    
+        plt.tight_layout()
+        img = BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        img_base64 = base64.b64encode(img.getvalue()).decode()
+        plt.close()
+        return img_base64
+    
+    
+    
+    
+    
+    @app.route('/')
+    @login_required
+    def index():
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if current_user.id == 'admin':
+            user_questions = data
+        else:
+            user_questions = [q for q in data if q['SubmitterID'] == current_user.id]
+    
+        last_type = request.cookies.get('last_type')
+        last_category = {
+            'main': request.cookies.get('last_main_category', ''),
+            'sub': request.cookies.get('last_sub_category', ''),
+            'minor': request.cookies.get('last_minor_category', '')
+        }
+        last_tags = request.cookies.get('last_tags')
+        last_source = request.cookies.get('last_source', '')
+    
+        for question in user_questions:
+            if 'Source' not in question:
+                question['Source'] = '출처 없음'
+            if 'SubmissionTime' not in question:
+                question['SubmissionTime'] = 'N/A'
+            if 'LastModifiedTime' not in question or not question['LastModifiedTime']:
+                question['LastModifiedTime'] = '수정되지 않음'
+    
+        chart_base64 = generate_category_pie_chart(data)  # 전체 문제 데이터 사용
+        return render_template('index.html', questions=user_questions, user=current_user, last_type=last_type, last_category=last_category, last_tags=last_tags, last_source=last_source, chart_base64=chart_base64, total_questions=len(data))
+    
+    
+    
+    
+    
+    @app.route('/register', methods=['GET', 'POST'])
+    def register():
+       if request.method == 'POST':
+           user_id = request.form['user_id']
+           password = request.form['password']
+           user = User.get(user_id)
+           if user is not None:
+               flash('User ID already exists.', 'error')
+           else:
+               user = User(user_id)
+               user.set_password(password)
+               with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                   users = json.load(f)
+               users.append({'id': user_id, 'password': user.password_hash})
+               with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                   json.dump(users, f, ensure_ascii=False, indent=4)
+               flash('User registered successfully!', 'success')
+               return redirect(url_for('login'))
+       return render_template('register.html')
+    
+    
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+       if request.method == 'POST':
+           user_id = request.form['user_id']
+           password = request.form['password']
+           user = User.get(user_id)
+           if user is None or not user.check_password(password):
+               flash('Invalid user ID or password.', 'error')
+           else:
+               login_user(user)
+               response = redirect(url_for('index'))
+               response.set_cookie('last_type', '', expires=0)
+               response.set_cookie('last_main_category', '', expires=0)
+               response.set_cookie('last_sub_category', '', expires=0)
+               response.set_cookie('last_minor_category', '', expires=0)
+               response.set_cookie('last_tags', '', expires=0)
+               return response
+       return render_template('login.html')
+    
+    
+    @app.route('/logout')
+    @login_required
+    def logout():
+       logout_user()
+       response = redirect(url_for('login'))
+       response.set_cookie('last_type', '', expires=0)
+       response.set_cookie('last_main_category', '', expires=0)
+       response.set_cookie('last_sub_category', '', expires=0)
+       response.set_cookie('last_minor_category', '', expires=0)
+       response.set_cookie('last_tags', '', expires=0)
+       return response
+    
+    
+    @app.route('/submit', methods=['POST'])
+    @login_required
+    def submit_question():
+        question_type = request.form['question_type']
+        choices = []
+    
+        if question_type == 'multiple':
+            question = request.form['mc_question']
+            choices = request.form.getlist('mc_choices[]')
+            answers = request.form.getlist('mc_answers[]')
+        elif question_type == 'subjective':
+            question = request.form['sub_question']
+            answer = request.form['sub_answer']
+            answers = [answer]
+        elif question_type == 'fill_in_the_blank':
+            question = request.form['fib_question']
+            raw_answers = request.form.getlist('fib_answer[]')
+            others = request.form.getlist('fib_others[]')
+            answers = {f"Blank#{i + 1}": answer for i, answer in enumerate(raw_answers)}
+            for i, other in enumerate(others):
+                answers[f"other#{i + 1}"] = other  # Add each other choice with a unique key
+    
+        main_category = request.form['main_category']
+        sub_category = request.form['sub_category']
+        minor_category = request.form['minor_category']
+        tags = request.form['tags']
+        source = request.form['source']
+    
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+    
+            new_id = max([item['ID'] for item in data], default=0) + 1 if data else 1
+    
+            new_data = {
+                'ID': new_id,
+                'Type': question_type,
+                'Question': question,
+                'Choices': choices,
+                'Answers': answers,
+                'SubmitterID': current_user.id,
+                'Category': {
+                    'main': main_category,
+                    'sub': sub_category,
+                    'minor': minor_category
+                },
+                'Tags': tags,
+                'Source': source,
+                'SubmissionTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'LastModifiedTime': ''
+            }
+    
+            data.append(new_data)
+    
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+    
+            flash('Question successfully submitted!', 'success')
+            response = redirect(url_for('index'))
+            response.set_cookie('last_type', question_type)
+            response.set_cookie('last_main_category', main_category)
+            response.set_cookie('last_sub_category', sub_category)
+            response.set_cookie('last_minor_category', minor_category)
+            response.set_cookie('last_tags', tags)
+            return response
+        except Exception as e:
+            flash(f'An error occurred while submitting the question: {e}', 'error')
+    
+        return redirect(url_for('index'))
+    
+    
+    
+    @app.route('/edit/<int:question_id>', methods=['GET', 'POST'])
+    @login_required
+    def edit_question(question_id):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 기존 데이터를 찾음
+        question = next((q for q in data if q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin')), None)
+        
+        if question is None:
+            flash('Question not found or you do not have permission to edit it.', 'error')
+            return redirect(url_for('index'))
+        
+        if request.method == 'POST':
+            question_type = request.form['question_type']
+            new_question = {}
+            
+            # 폼 데이터를 바탕으로 새로운 데이터를 생성
+            if question_type == 'multiple':
+                new_question = {
+                    'Question': request.form['mc_question'],
+                    'Choices': request.form.getlist('mc_choices[]'),
+                    'Answers': request.form.getlist('mc_answers[]')
+                }
+            elif question_type == 'subjective':
+                new_question = {
+                    'Question': request.form['sub_question'],
+                    'Answers': [request.form['sub_answer']],
+                    'Choices': None
+                }
+            elif question_type == 'fill_in_the_blank':
+                raw_answers = request.form.getlist('fib_answer[]')
+                other_choices = request.form.getlist('fib_others[]')
+                answers = {f"Blank#{i + 1}": answer for i, answer in enumerate(raw_answers)}
+                for i, other in enumerate(other_choices):
+                    answers[f"other#{i + 1}"] = other  # Add each other choice with a unique key
+                
+                new_question = {
+                    'Question': request.form['fib_question'],
+                    'Answers': answers,
+                    'Choices': None
+                }
+            
+            # 카테고리, 태그, 출처, 시간 정보 등을 설정
+            new_question.update({
+                'ID': question['ID'],  # 기존 ID 유지
+                'Type': question_type,
+                'SubmitterID': current_user.id,
+                'Category': {
+                    'main': request.form['main_category'],
+                    'sub': request.form['sub_category'],
+                    'minor': request.form['minor_category']
+                },
+                'Tags': request.form['tags'],
+                'Source': request.form['source'],
+                'SubmissionTime': question['SubmissionTime'],  # 기존 제출 시간 유지
+                'LastModifiedTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # 현재 시간으로 수정 시간 설정
+            })
+            
+            # 기존 데이터를 덮어쓰지 않고 새로운 데이터를 생성하여 리스트에 저장
+            data = [q if q['ID'] != question_id else new_question for q in data]
+            
+            # 데이터 파일에 저장
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            
+            flash('Question successfully updated!', 'success')
+            return redirect(url_for('index'))
+        
+        return render_template('edit_question.html', question=question)
+    
+    
+    
+    
+    
+    
+    
+    
+    @app.route('/delete/<int:question_id>', methods=['POST'])
+    @login_required
+    def delete_question(question_id):
+       try:
+           with open(DATA_FILE, 'r', encoding='utf-8') as f:
+               data = json.load(f)
+           data = [q for q in data if not (q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin'))]
+           with open(DATA_FILE, 'w', encoding='utf-8') as f:
+               json.dump(data, f, ensure_ascii=False, indent=4)
+           flash('Question successfully deleted!', 'success')
+       except Exception as e:
+           flash(f'An error occurred while deleting the question: {e}', 'error')
+       return redirect(url_for('index'))
+    
+    
+    @app.route('/submit_voc', methods=['POST'])
+    @login_required
+    def submit_voc():
+       voc_type = request.form['voc_type']
+       voc_content = request.form['voc_content']
+    
+    
+       new_voc = {
+           'Type': voc_type,
+           'Content': voc_content,
+           'SubmitterID': current_user.id
+       }
+    
+    
+       try:
+           with open(VOC_FILE, 'r', encoding='utf-8') as f:
+               voc_data = json.load(f)
+          
+           voc_data.append(new_voc)
+          
+           with open(VOC_FILE, 'w', encoding='utf-8') as f:
+               json.dump(voc_data, f, ensure_ascii=False, indent=4)
+    
+    
+           flash('VOC successfully submitted!', 'success')
+       except Exception as e:
+           flash(f'An error occurred while submitting the VOC: {e}', 'error')
+      
+       return redirect(url_for('index'))
+    
+    
+    @app.route('/download_voc')
+    @login_required
+    def download_voc():
+       return send_file(VOC_FILE, as_attachment=True)
+    
+    
+    @app.route('/download')
+    @login_required
+    def download():
+       return send_file(DATA_FILE, as_attachment=True)
+    
+    
+    @app.route('/download_users')
+    @login_required
+    def download_users():
+       if current_user.id == 'admin':
+           return send_file(USERS_FILE, as_attachment=True)
+       else:
+           flash('You do not have permission to download this file.', 'error')
+           return redirect(url_for('index'))
+    
+    
+    @app.route('/download_categories')
+    @login_required
+    def download_categories():
+       return send_file(CATEGORIES_FILE, as_attachment=True)
+    
+    
+    @app.route('/categories', methods=['GET'])
+    @login_required
+    def get_categories():
+       with open(CATEGORIES_FILE, 'r', encoding='utf-8') as f:
+           categories = json.load(f)
+       return jsonify(categories)
+    
+    
+    @app.route('/manage_categories', methods=['GET', 'POST'])
+    @login_required
+    def manage_categories():
+       if current_user.id != 'admin':
+           flash('You do not have permission to manage categories.', 'error')
+           return redirect(url_for('index'))
+    
+    
+       if request.method == 'POST':
+           categories_content = request.form['categories_content']
+           try:
+               categories = json.loads(categories_content)
+               with open(CATEGORIES_FILE, 'w', encoding='utf-8') as f:
+                   json.dump(categories, f, ensure_ascii=False, indent=4)
+               flash('Categories updated successfully!', 'success')
+           except json.JSONDecodeError:
+               flash('Invalid JSON format.', 'error')
+      
+       with open(CATEGORIES_FILE, 'r', encoding='utf-8') as f:
+           categories = json.load(f)
+       return render_template('manage_categories.html', categories=json.dumps(categories, ensure_ascii=False, indent=4))
+    
+    
+    @app.route('/change_password', methods=['GET', 'POST'])
+    @login_required
+    def change_password():
+       if request.method == 'POST':
+           old_password = request.form['old_password']
+           new_password = request.form['new_password']
+           confirm_password = request.form['confirm_password']
+    
+    
+           user = User.get(current_user.id)
+    
+    
+           if not user.check_password(old_password):
+               flash('Old password is incorrect.', 'error')
+           elif new_password != confirm_password:
+               flash('New passwords do not match.', 'error')
+           else:
+               user.set_password(new_password)
+               with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                   users = json.load(f)
+               for u in users:
+                   if u['id'] == user.id:
+                       u['password'] = user.password_hash
+                       break
+               with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                   json.dump(users, f, ensure_ascii=False, indent=4)
+               flash('Password changed successfully!', 'success')
+               return redirect(url_for('index'))
+       return render_template('change_password.html')
+    
+    
+    if __name__ == '__main__':
+       app.run(debug=True,port=4444)
+
+    templates/
+        login.html
+        ----------
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+           <meta charset="UTF-8">
+           <title>로그인</title>
+           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+        </head>
+        <body>
+           <div class="form-container">
+               <h1>SSAT 출제 시스템</h1>
+               <h1>로그인</h1>
+        
+        
+               {% with messages = get_flashed_messages(with_categories=true) %}
+                   {% if messages %}
+                       <ul class="flashes">
+                           {% for category, message in messages %}
+                               <li class="{{ category }}">{{ message }}</li>
+                           {% endfor %}
+                       </ul>
+                   {% endif %}
+               {% endwith %}
+        
+        
+               <form action="{{ url_for('login') }}" method="POST">
+                   <label>사용자 ID: <input type="text" name="user_id" required></label><br>
+                   <label>비밀번호: <input type="password" name="password" required></label><br>
+                   <input type="submit" value="로그인">
+               </form>
+               <p class="switch-form">계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
+           </div>
+        </body>
+        </html>
+
+        index.html
+        ----------
+        <!DOCTYPE html>
+        <html lang="ko">
+        
+        <head>
+            <meta charset="UTF-8">
+            <title>문제를 출제 해 주세요.</title>
+            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+            <script>
+        
+                function showForm() {
+                    const selectedType = document.querySelector('input[name="question_type"]:checked');
+                    if (!selectedType) return; // 라디오 버튼이 선택되지 않은 경우 함수 종료
+                    const type = selectedType.value;
+                    const multipleChoice = document.getElementById('multiple_choice');
+                    const subjective = document.getElementById('subjective');
+                    const fillInTheBlank = document.getElementById('fill_in_the_blank');
+        
+                    multipleChoice.style.display = type === 'multiple' ? 'block' : 'none';
+                    subjective.style.display = type === 'subjective' ? 'block' : 'none';
+                    fillInTheBlank.style.display = type === 'fill_in_the_blank' ? 'block' : 'none';
+        
+                    document.getElementsByName('mc_question')[0].disabled = type !== 'multiple';
+                    document.getElementsByName('mc_choices[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('mc_answers[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('sub_question')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('sub_answer')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('fib_question')[0].disabled = type !== 'fill_in_the_blank';
+                    document.getElementsByName('fib_answer[]').forEach(field => field.disabled = type !== 'fill_in_the_blank');
+                }
+        
+                let originalBlanks = [];
+                let previousAnswers = [];
+                let initialQuestion = '';
+        
+                function generateAnswerFields() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    const question = textarea.value;
+                    const blankMatches = question.match(/{\s*}/g) || [];
+                    const blanks = blankMatches.map(blank => blank.length - 2); // 원래 공백 수 저장
+                    const answerDiv = document.querySelector('#fib_answers');
+        
+                    // 기존 매핑을 저장
+                    const existingAnswers = Array.from(document.getElementsByName('fib_answer[]')).map(input => input.value);
+        
+                    // 매핑을 유지하며 삭제된 blank에 대응하는 정답 제거
+                    previousAnswers = previousAnswers.filter((_, index) => index < blanks.length);
+        
+                    if (answerDiv) {
+                        answerDiv.innerHTML = '';
+                        let updatedQuestion = question;
+                        let currentAnswerIndex = 0;
+        
+                        for (let i = 0; i < blanks.length; i++) {
+                            const label = document.createElement('label');
+                            label.innerText = `Blank#${i + 1}: `;
+                            const input = document.createElement('input');
+                            input.type = 'text';
+                            input.name = 'fib_answer[]';
+                            input.required = true;
+                            if (previousAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = previousAnswers[currentAnswerIndex];
+                            } else if (existingAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = existingAnswers[currentAnswerIndex];
+                            }
+                            currentAnswerIndex++;
+                            answerDiv.appendChild(label);
+                            answerDiv.appendChild(input);
+                            answerDiv.appendChild(document.createElement('br'));
+        
+                            updatedQuestion = updatedQuestion.replace(/{\s*}/, `{Blank#${i + 1}}`);
+                        }
+        
+                        originalBlanks = blanks;
+                        initialQuestion = textarea.value;
+                        textarea.value = updatedQuestion;
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true; // 버튼 비활성화
+                    } else {
+                        console.error("Element with id 'fib_answers' not found.");
+                    }
+                }
+        
+                function resetBlanks() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    let i = 0;
+                    textarea.value = textarea.value.replace(/{Blank#\d+}/g, (match) => {
+                        const blankCount = originalBlanks[i++];
+                        return `{${' '.repeat(blankCount)}}`;
+                    });
+                    document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false; // 버튼 활성화
+                }
+        
+                function enableGenerateButton() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    if (textarea.value === initialQuestion) {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+                    } else {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false;
+                    }
+                }
+        
+                document.addEventListener('DOMContentLoaded', () => {
+                    showForm();
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    textarea.addEventListener('focus', resetBlanks);
+                    textarea.addEventListener('input', enableGenerateButton);
+                });
+        
+                function updateAnswerOptions() {
+                    const choices = document.getElementsByName('mc_choices[]');
+                    const answerDiv = document.getElementById('mc_answers');
+                    answerDiv.innerHTML = '<h4>정답</h4>';
+        
+        
+                    choices.forEach((choice, index) => {
+                        if (choice.value.trim() !== '') {
+                            const label = document.createElement('label');
+                            label.style.marginRight = '10px';
+                            label.innerHTML = `<input type="checkbox" name="mc_answers[]" value="${index + 1}"> ${index + 1}`;
+                            answerDiv.appendChild(label);
+                        }
+                    });
+                }
+        
+        
+                function addChoice() {
+                    const choicesDiv = document.getElementById('choices');
+                    const choiceCount = choicesDiv.getElementsByTagName('label').length + 1;
+                    const newChoice = document.createElement('div');
+                    newChoice.innerHTML = `<label>${choiceCount}. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"></textarea></label><br>`;
+                    choicesDiv.appendChild(newChoice);
+                    updateAnswerOptions();
+                }
+        
+        
+                function removeChoice() {
+                    const choicesDiv = document.getElementById('choices');
+                    const choices = choicesDiv.getElementsByTagName('div');
+                    if (choices.length > 2) {
+                        choicesDiv.removeChild(choices[choices.length - 1]);
+                        updateAnswerOptions();
+                    }
+                }
+        
+        
+                function openPopup() {
+                    document.getElementById('voc-popup').style.display = 'block';
+                    document.getElementById('voc-popup-overlay').style.display = 'block';
+                }
+        
+        
+                function closePopup() {
+                    document.getElementById('voc-popup').style.display = 'none';
+                    document.getElementById('voc-popup-overlay').style.display = 'none';
+                }
+        
+        
+                function loadCategories() {
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const mainCategorySelect = document.getElementById('main_category');
+                            mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
+                            data.categories.forEach(category => {
+                                const option = document.createElement('option');
+                                option.value = category.name;
+                                option.text = category.name;
+                                mainCategorySelect.appendChild(option);
+                            });
+        
+        
+                            const lastMainCategory = '{{ request.cookies.get("last_main_category", "") }}';
+                            const lastSubCategory = '{{ request.cookies.get("last_sub_category", "") }}';
+                            const lastMinorCategory = '{{ request.cookies.get("last_minor_category", "") }}';
+        
+        
+                            if (lastMainCategory) {
+                                mainCategorySelect.value = lastMainCategory;
+                                updateSubcategories(() => {
+                                    const subCategorySelect = document.getElementById('sub_category');
+                                    if (lastSubCategory) {
+                                        subCategorySelect.value = lastSubCategory;
+                                        updateMinorCategories(() => {
+                                            const minorCategorySelect = document.getElementById('minor_category');
+                                            if (lastMinorCategory) {
+                                                minorCategorySelect.value = lastMinorCategory;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                }
+        
+        
+                function updateSubcategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const subCategorySelect = document.getElementById('sub_category');
+                            subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                category.subcategories.forEach(subcategory => {
+                                    const option = document.createElement('option');
+                                    option.value = subcategory.name;
+                                    option.text = subcategory.name;
+                                    subCategorySelect.appendChild(option);
+                                });
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+        
+                function updateMinorCategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    const subCategory = document.getElementById('sub_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                const subcategory = category.subcategories.find(sub => sub.name === subCategory);
+                                if (subcategory) {
+                                    subcategory.subcategories.forEach(minor => {
+                                        const option = document.createElement('option');
+                                        option.value = minor.name;
+                                        option.text = minor.name;
+                                        minorCategorySelect.appendChild(option);
+                                    });
+                                }
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+        
+                function validateForm(event) {
+                    const questionType = document.querySelector('input[name="question_type"]:checked').value;
+                    if (questionType === 'multiple') {
+                        const answers = document.querySelectorAll('input[name="mc_answers[]"]:checked');
+                        if (answers.length === 0) {
+                            event.preventDefault();
+                            alert('객관식 문제의 경우, 적어도 하나의 정답을 선택해야 합니다.');
+                        }
+                    }
+                }
+        
+        
+                document.addEventListener('DOMContentLoaded', () => {
+                    loadCategories();
+                    document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
+                    document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
+                    document.querySelector('form').addEventListener('submit', validateForm);
+                    showForm();
+                });
+            </script>
+            <style>
+                .popup {
+                    display: none;
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    width: 40%;
+                    background-color: white;
+                    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+                    padding: 20px;
+                    z-index: 1000;
+                    border-radius: 8px;
+                }
+        
+        
+                .popup-overlay {
+                    display: none;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.7);
+                    z-index: 999;
+                }
+        
+        
+                .popup-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+        
+        
+                .popup-header h2 {
+                    margin: 0;
+                }
+        
+        
+                .popup-header .close {
+                    cursor: pointer;
+                    font-size: 1.5em;
+                }
+        
+        
+                #feedback-button,
+                #download-users-button {
+                    position: fixed;
+                    bottom: 20px;
+                    padding: 10px 20px;
+                    background-color: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+                }
+        
+        
+                #feedback-button:hover,
+                #download-users-button:hover {
+                    background-color: #0056b3;
+                }
+        
+        
+                #feedback-button {
+                    right: 20px;
+                }
+        
+        
+                #download-users-button {
+                    right: 220px;
+                }
+        
+        
+                body {
+                    padding: 0 10%;
+                }
+        
+        
+                textarea {
+                    resize: vertical;
+                }
+        
+        
+                .title-container {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
+        
+        
+                .title-container h2 {
+                    margin: 0;
+                }
+        
+        
+                .title-container .download-btn {
+                    margin-left: 10px;
+                }
+        
+        
+                .admin-btns {
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 20px;
+                }
+        
+        
+                .admin-btns .download-btn {
+                    margin: 0 10px;
+                }
+        
+        
+                .questions-list {
+                    max-width: 800px;
+                    margin: 0 auto;
+                }
+        
+        
+                .form-container {
+                    max-width: 800px;
+                    margin: 0 auto;
+                }
+        
+        
+                #mc_answers label {
+                    display: inline-block;
+                    margin-right: 10px;
+                }
+        
+        
+                .chart-container {
+                    margin-top: 40px;
+                    text-align: center;
+                }
+        
+        
+                .chart-title {
+                    text-align: center;
+                    margin-bottom: 20px;
+                }
+            </style>
+        </head>
+        
+        <body>
+            <h1 id="main-title">SSAT 출제 시스템</h1>
+            <h1>문제를 출제 해 주세요.</h1>
+        
+        
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <ul class="flashes">
+                {% for category, message in messages %}
+                <li class="{{ category }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% endwith %}
+        
+        
+            <p>환영합니다, {{ user.id }}님! <a href="{{ url_for('logout') }}">로그아웃</a> | <a
+                    href="{{ url_for('change_password') }}">비밀번호 변경</a></p>
+        
+        
+            {% if user.id == 'admin' %}
+            <p><a href="{{ url_for('manage_categories') }}">분류 관리</a></p>
+            {% endif %}
+        
+        
+            <form action="/submit" method="POST" class="form-container">
+                <label>
+                    <input type="radio" name="question_type" value="multiple" onclick="showForm()" {% if last_type=='multiple'
+                        or last_type is none %}checked{% endif %}> 객관식
+                </label>
+                <label>
+                    <input type="radio" name="question_type" value="subjective" onclick="showForm()" {% if
+                        last_type=='subjective' %}checked{% endif %}> 주관식
+                </label>
+                <label>
+                    <input type="radio" name="question_type" value="fill_in_the_blank" onclick="showForm()" {% if
+                        last_type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
+                </label>
+        
+        
+                <div id="multiple_choice"
+                    style="display: {% if last_type == 'multiple' or last_type is none %}block{% else %}none{% endif %};">
+                    <h3>객관식 문제</h3>
+                    <label>문제: <textarea name="mc_question" rows="3" required></textarea></label><br>
+                    <div id="choices">
+                        <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                    required></textarea></label><br></div>
+                        <div><label>2. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                    required></textarea></label><br></div>
+                        <div><label>3. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                    required></textarea></label><br></div>
+                        <div><label>4. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                    required></textarea></label><br></div>
+                    </div>
+                    <button type="button" onclick="addChoice()">보기 추가</button>
+                    <button type="button" onclick="removeChoice()">보기 제거</button><br>
+                    <div id="mc_answers">
+                        <h4>정답</h4>
+                    </div>
+                </div>
+        
+        
+                <div id="subjective" style="display: {% if last_type == 'subjective' %}block{% else %}none{% endif %};">
+                    <h3>주관식 문제</h3>
+                    <label>문제: <textarea name="sub_question" rows="3" required></textarea></label><br>
+                    <label>정답: <textarea name="sub_answer" rows="3" required></textarea></label><br>
+                </div>
+        
+                <div id="fill_in_the_blank" style="display: {% if last_type == 'fill_in_the_blank' %}block{% else %}none{% endif %};">
+                    <h3>빈칸 채우기 문제</h3>
+                    <label>문제:  (작성예: 한국의 수도는{ }이고, 미국의 수도는 { }이다.)<textarea name="fib_question" rows="3" required></textarea></label><br>
+                    <button type="button" onclick="generateAnswerFields()">정답 입력</button><br><br>
+                    <div id="fib_answers"></div>
+                    <div id="other_choices">
+                        <h4>오답 보기 추가 (선택)</h4>
+                        <div>
+                            <textarea name="fib_others[]" rows="2"></textarea>
+                        </div>
+                    </div>
+                    <button type="button" onclick="addChoice()">보기 추가</button>
+                    <button type="button" onclick="removeChoice()">보기 삭제</button><br>
+                </div>
+                
+                <script>
+                    function addChoice() {
+                        const otherChoicesDiv = document.getElementById('other_choices');
+                        const newChoice = document.createElement('div');
+                        newChoice.innerHTML = `<textarea name="fib_others[]" rows="2"></textarea>`;
+                        otherChoicesDiv.appendChild(newChoice);
+                    }
+                
+                    function removeChoice() {
+                        const otherChoicesDiv = document.getElementById('other_choices');
+                        const choices = otherChoicesDiv.getElementsByTagName('div');
+                        if (choices.length > 1) {
+                            otherChoicesDiv.removeChild(choices[choices.length - 1]);
+                        }
+                    }
+                </script>
+        
+                <h3>분류</h3>
+                <label>대분류:
+                    <select id="main_category" name="main_category">
+                        <option value="">대분류 선택</option>
+                    </select>
+                </label><br>
+                <label>중분류:
+                    <select id="sub_category" name="sub_category">
+                        <option value="">중분류 선택</option>
+                    </select>
+                </label><br>
+                <label>소분류:
+                    <select id="minor_category" name="minor_category">
+                        <option value="">소분류 선택</option>
+                    </select>
+                </label><br>
+        
+        
+                <label>출처: <input type="text" name="source" value="{{ request.cookies.get('last_source', '') }}"></label><br>
+                <label>태그: <textarea name="tags" rows="3">{{ last_tags }}</textarea></label><br>
+        
+        
+                <input type="submit" value="제출">
+            </form>
+        
+        
+            <button id="feedback-button" onclick="openPopup()">기능제안 및 버그신고</button>
+            {% if user.id == 'admin' %}
+            <button id="download-users-button" onclick="window.location.href='{{ url_for('download_users') }}'">USER 목록
+                다운로드</button>
+            {% endif %}
+        
+        
+            <div id="voc-popup" class="popup">
+                <div class="popup-header">
+                    <h2>기능제안 및 버그신고</h2>
+                    <span class="close" onclick="closePopup()">&times;</span>
+                </div>
+                <form action="/submit_voc" method="POST" class="voc-container">
+                    <label for="voc_type">유형:</label>
+                    <select id="voc_type" name="voc_type" required>
+                        <option value="Feature Suggestion">기능 제안</option>
+                        <option value="Bug Report">버그 신고</option>
+                    </select><br>
+                    <label for="voc_content">내용:</label>
+                    <textarea id="voc_content" name="voc_content" rows="4" required></textarea><br>
+                    <input type="submit" value="제출">
+                </form>
+                {% if user.id == 'admin' %}
+                <a href="{{ url_for('download_voc') }}" class="download-btn" style="float: right;">VOC JSON 다운로드</a>
+                {% endif %}
+            </div>
+            <div id="voc-popup-overlay" class="popup-overlay" onclick="closePopup()"></div>
+        
+        
+            <div class="container">
+                <div class="title-container">
+                    <h2>문제 목록</h2>
+                    {% if user.id == 'admin' %}
+                    <a href="{{ url_for('download') }}" class="download-btn">JSON 다운로드</a>
+                    {% endif %}
+                </div>
+                <div class="question-count">문제 수: {{ questions | length }}</div> <br> <!-- 문제 수 표시 -->
+                <div class="questions-list">
+                    {% if questions %}
+                    {% for question in questions %}
+                    <div class="question">
+                        <p><strong>ID:</strong> {{ question.ID }}</p>
+                        <p><strong>유형:</strong> {{ question.Type }}</p>
+                        <p><strong>문제:</strong> {{ question.Question }}</p>
+                        {% if question.Choices %}
+                        <p><strong>보기:</strong></p>
+                        <ul>
+                            {% for choice in question.Choices %}
+                            <li>{{ choice }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        <p><strong>정답:</strong>
+                            {% if question.Type == 'fill_in_the_blank' %}
+                        <ul>
+                            {% if question.Answers is mapping %}
+                            {% for key, value in question.Answers.items() %}
+                            <li>{{ key }}: {{ value }}</li>
+                            {% endfor %}
+                            {% else %}
+                            {% for answer in question.Answers %}
+                            <li>{{ answer }}</li>
+                            {% endfor %}
+                            {% endif %}
+                        </ul>
+                        {% else %}
+                        <ul>
+                            {% for answer in question.Answers %}
+                            <li>{{ answer }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        </p>
+                        <p><strong>대분류:</strong> {{ question.Category.main if question.Category else '' }}</p>
+                        <p><strong>중분류:</strong> {{ question.Category.sub if question.Category else '' }}</p>
+                        <p><strong>소분류:</strong> {{ question.Category.minor if question.Category else '' }}</p>
+                        <p><strong>태그:</strong> {{ question.Tags }}</p>
+                        <p><strong>출처:</strong> {{ question.Source }}</p>
+                        <p><strong>제출자 ID:</strong> {{ question.SubmitterID }}</p>
+                        <p><strong>제출 시간:</strong> {{ question.SubmissionTime }}</p>
+                        <p><strong>마지막 수정 시간:</strong> {{ question.LastModifiedTime }}</p>
+                        <form action="{{ url_for('edit_question', question_id=question.ID) }}" method="GET"
+                            style="display:inline;">
+                            <button type="submit">수정</button>
+                        </form>
+                        <form action="{{ url_for('delete_question', question_id=question.ID) }}" method="POST"
+                            style="display:inline;">
+                            <button type="submit">삭제</button>
+                        </form>
+                        <hr>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <p>아직 제출된 질문이 없습니다.</p>
+                    {% endif %}
+                </div>
+        
+            </div>
+        
+        
+            <div class="chart-container">
+                <h2 class="chart-title">출제 현황 (Total: {{ total_questions }})</h2>
+                <img src="data:image/png;base64,{{ chart_base64 }}" alt="출제 현황">
+            </div>
+        </body>
+        
+        </html>
+
+        edit_question.html
+        ------------------
+        <!DOCTYPE html>
+        <html lang="ko">
+        
+        <head>
+            <meta charset="UTF-8">
+            <title>문제 수정</title>
+            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+            <style>
+                .form-container {
+                    max-width: 800px;
+                    margin: 20px auto;
+                    padding: 20px;
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    background-color: #fff;
+                }
+            </style>
+            <script>
+                function showForm() {
+                    const type = document.querySelector('input[name="question_type"]:checked').value;
+                    const multipleChoice = document.getElementById('multiple_choice');
+                    const subjective = document.getElementById('subjective');
+                    const fillInTheBlank = document.getElementById('fill_in_the_blank');
+        
+                    multipleChoice.style.display = type === 'multiple' ? 'block' : 'none';
+                    subjective.style.display = type === 'subjective' ? 'block' : 'none';
+                    fillInTheBlank.style.display = type === 'fill_in_the_blank' ? 'block' : 'none';
+        
+                    // if(type === 'fill_in_the_blank'){
+                    //     resetBlanks()
+                    //     generateAnswerFields()
+                    // }
+        
+                    document.getElementsByName('mc_question')[0].disabled = type !== 'multiple';
+                    document.getElementsByName('mc_choices[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('mc_answers[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('sub_question')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('sub_answer')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('fib_question')[0].disabled = type !== 'fill_in_the_blank';
+                    document.getElementsByName('fib_answer[]').forEach(field => field.disabled = type !== 'fill_in_the_blank');
+                }
+        
+                let originalBlanks = [];
+                let previousAnswers = [];
+                let initialQuestion = '';
+        
+                function generateAnswerFields() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    const question = textarea.value;
+                    const blankMatches = question.match(/{\s*}/g) || [];
+                    const blanks = blankMatches.map(blank => blank.length - 2); // 원래 공백 수 저장
+                    const answerDiv = document.querySelector('#fib_answers');
+        
+                    // 기존 매핑을 저장
+                    const existingAnswers = Array.from(document.getElementsByName('fib_answer[]')).map(input => input.value);
+                    // 매핑을 유지하며 삭제된 blank에 대응하는 정답 제거
+                    previousAnswers = previousAnswers.filter((_, index) => index < blanks.length);
+        
+                    if (answerDiv) {
+                        answerDiv.innerHTML = '';
+                        let updatedQuestion = question;
+                        let currentAnswerIndex = 0;
+        
+                        for (let i = 0; i < blanks.length; i++) {
+                            const label = document.createElement('label');
+                            label.innerText = `Blank#${i + 1}: `;
+                            const input = document.createElement('input');
+                            input.type = 'text';
+                            input.name = 'fib_answer[]';
+                            input.required = true;
+                            if (previousAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = previousAnswers[currentAnswerIndex];
+                            } else if (existingAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = existingAnswers[currentAnswerIndex];
+                            }
+                            currentAnswerIndex++;
+                            answerDiv.appendChild(label);
+                            answerDiv.appendChild(input);
+                            answerDiv.appendChild(document.createElement('br'));
+        
+                            updatedQuestion = updatedQuestion.replace(/{\s*}/, `{Blank#${i + 1}}`);
+                        }
+        
+                        originalBlanks = blanks;
+                        initialQuestion = updatedQuestion;
+                        textarea.value = updatedQuestion;
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true; // 버튼 비활성화
+        
+                
+                    } else {
+                        console.error("Element with id 'fib_answers' not found.");
+                    }
+                }
+        
+                function resetBlanks() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    const blankMatches = textarea.value.match(/{\s*Blank#\d+\s*}|{\s*}/g) || [];
+        
+                    if (blankMatches.length === 0) {
+                        // 빈칸이 하나도 없는 경우 버튼 비활성화
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+                    } else {
+                        // 빈칸이 하나라도 있는 경우 버튼 활성화
+                        textarea.value = textarea.value.replace(/{\s*Blank#\d+\s*}|{\s*}/g, (match) => {
+                            let blankCount;
+                            if (match.includes('Blank#')) {
+                                const blankNumber = parseInt(match.match(/\d+/)[0], 10) - 1;
+                                blankCount = originalBlanks[blankNumber];
+                            } else {
+                                blankCount = match.length - 2; // 중괄호를 제외한 공백 수
+                            }
+                            return `{${' '.repeat(blankCount)}}`;
+                        });
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false; // 버튼 활성화
+                    }
+                }
+        
+        
+                function enableGenerateButton() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    if (textarea.value === initialQuestion) {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+                    } else {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false;
+                    }
+                }
+        
+                function updateAnswerOptions() {
+                    const choices = document.getElementsByName('mc_choices[]');
+                    const answerDiv = document.getElementById('mc_answers');
+                    answerDiv.innerHTML = '<h4>정답</h4>';
+        
+        
+                    choices.forEach((choice, index) => {
+                        if (choice.value.trim() !== '') {
+                            const label = document.createElement('label');
+                            label.style.marginRight = '10px';
+                            label.innerHTML = `<input type="checkbox" name="mc_answers[]" value="${index + 1}"> ${index + 1}`;
+                            answerDiv.appendChild(label);
+                        }
+                    });
+                }
+        
+                function isChecked(value) {
+                    let answers = {{ question.Answers | default([]) | tojson }};
+                    if (answers.length === 0 && '{{ question.Answer }}' !== '') {
+                        answers = ['{{ question.Answer }}'];
+                    }
+                    return answers.includes(value.toString()) ? 'checked' : '';
+                }
+        
+                function addChoice() {
+                    const otherChoicesDiv = document.getElementById('other_choices');
+                    const newChoice = document.createElement('div');
+                    newChoice.innerHTML = `<textarea name="fib_others[]" rows="2"></textarea>`;
+                    otherChoicesDiv.appendChild(newChoice);
+                }
+        
+                function removeChoice() {
+                    const otherChoicesDiv = document.getElementById('other_choices');
+                    const choices = otherChoicesDiv.getElementsByTagName('div');
+                    if (choices.length > 1) {
+                        otherChoicesDiv.removeChild(choices[choices.length - 1]);
+                    }
+                }
+        
+                function loadCategories() {
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const mainCategorySelect = document.getElementById('main_category');
+                            mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
+                            data.categories.forEach(category => {
+                                const option = document.createElement('option');
+                                option.value = category.name;
+                                option.text = category.name;
+                                mainCategorySelect.appendChild(option);
+                            });
+        
+                            const category = {
+                                main: "{{ question.Category.main if question.Category else '' }}",
+                                sub: "{{ question.Category.sub if question.Category else '' }}",
+                                minor: "{{ question.Category.minor if question.Category else '' }}"
+                            };
+                            if (category.main) {
+                                mainCategorySelect.value = category.main;
+                                updateSubcategories(() => {
+                                    const subCategorySelect = document.getElementById('sub_category');
+                                    if (category.sub) {
+                                        subCategorySelect.value = category.sub;
+                                        updateMinorCategories(() => {
+                                            const minorCategorySelect = document.getElementById('minor_category');
+                                            if (category.minor) {
+                                                minorCategorySelect.value = category.minor;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                }
+        
+                function updateSubcategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const subCategorySelect = document.getElementById('sub_category');
+                            subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                category.subcategories.forEach(subcategory => {
+                                    const option = document.createElement('option');
+                                    option.value = subcategory.name;
+                                    option.text = subcategory.name;
+                                    subCategorySelect.appendChild(option);
+                                });
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+                function updateMinorCategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    const subCategory = document.getElementById('sub_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                const subcategory = category.subcategories.find(sub => sub.name === subCategory);
+                                if (subcategory) {
+                                    subcategory.subcategories.forEach(minor => {
+                                        const option = document.createElement('option');
+                                        option.value = minor.name;
+                                        option.text = minor.name;
+                                        minorCategorySelect.appendChild(option);
+                                    });
+                                }
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+                function validateForm(event) {
+                    const questionType = document.querySelector('input[name="question_type"]:checked').value;
+                    if (questionType === 'multiple') {
+                        const answers = document.querySelectorAll('input[name="mc_answers[]"]:checked');
+                        if (answers.length === 0) {
+                            event.preventDefault();
+                            alert('객관식 문제의 경우, 적어도 하나의 정답을 선택해야 합니다.');
+                        }
+                    }
+                }
+        
+                document.addEventListener('DOMContentLoaded', () => {
+                    window.question = {{ question | tojson | safe }};
+                    initialQuestion = window.question.Question
+                    enableGenerateButton()
+                    loadCategories();
+                    document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
+                    document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
+                    updateAnswerOptions();
+                    showForm();
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    textarea.addEventListener('focus', resetBlanks);
+                    textarea.addEventListener('input', enableGenerateButton);
+                    document.querySelector('form').addEventListener('submit', validateForm);
+                });
+            </script>
+        </head>
+        
+        <body>
+            <h1 id="main-title">SSAT 출제 시스템</h1>
+            <h1>문제 수정</h1>
+        
+            <div class="form-container">
+                <form action="/edit/{{ question.ID }}" method="POST">
+                    <label>
+                        <input type="radio" name="question_type" value="multiple" onclick="showForm()" {% if
+                            question.Type=='multiple' %}checked{% endif %}> 객관식
+                    </label>
+                    <label>
+                        <input type="radio" name="question_type" value="subjective" onclick="showForm()" {% if
+                            question.Type=='subjective' %}checked{% endif %}> 주관식
+                    </label>
+                    <label>
+                        <input type="radio" name="question_type" value="fill_in_the_blank" onclick="showForm()" {% if
+                            question.Type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
+                    </label>
+        
+                    <div id="multiple_choice"
+                        style="display: {% if question.Type == 'multiple' %}block{% else %}none{% endif %};">
+                        <h3>객관식 문제</h3>
+                        <label>문제: <textarea name="mc_question" rows="3" required>{{ question.Question }}</textarea></label><br>
+                        <div id="choices">
+                            {% if question.Choices %}
+                            {% for choice in question.Choices %}
+                            <div><label>{{ loop.index }}. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required>{{ choice }}</textarea></label><br></div>
+                            {% endfor %}
+                            {% else %}
+                            <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>2. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>3. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>4. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            {% endif %}
+                        </div>
+                        <button type="button" onclick="addChoice()">보기 추가</button>
+                        <button type="button" onclick="removeChoice()">보기 제거</button><br>
+                        <div id="mc_answers">
+                            <h4>정답</h4>
+                        </div>
+                    </div>
+        
+                    <div id="subjective" style="display: {% if question.Type == 'subjective' %}block{% else %}none{% endif %};">
+                        <h3>주관식 문제</h3>
+                        <label>문제: <textarea name="sub_question" rows="3"
+                                required>{{ question.Question }}</textarea></label><br>
+                        <label>정답: <textarea name="sub_answer" rows="3"
+                                required>{{ question.Answers[0] if question.Answers else question.Answer }}</textarea></label><br>
+                    </div>
+        
+                    <div id="fill_in_the_blank"
+                        style="display: {% if question.Type == 'fill_in_the_blank' %}block{% else %}none{% endif %};">
+                        <h3>빈칸 채우기 문제</h3>
+                        <label>문제: (작성예: 한국의 수도는{ }이고, 미국의 수도는 { }이다.)<textarea name="fib_question" rows="3"
+                                required>{{ question.Question }}</textarea></label><br>
+                        <button type="button" onclick="generateAnswerFields()">정답 입력</button><br><br>
+                        
+                        <div id="fib_answers">
+                            {% if question.Type == 'fill_in_the_blank' %}
+                                {% for key, value in question.Answers.items() %}
+                                    {% if key.startswith('Blank#') %}
+                                            <label>{{ key }}</label>
+                                            <input name="fib_answer[]" type="text" value="{{value}}" required>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        <div id="other_choices">
+                            <h4>오답 보기 추가 (선택)</h4>
+                            {% if question.Type == 'fill_in_the_blank' %}
+                            {% for key, value in question.Answers.items() %}
+                                {% if key.startswith('other#') %}
+                                    <div>
+                                        <textarea name="fib_others[]" rows="2">{{ value }}</textarea>
+                                    </div> 
+                                {% endif %}
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                        
+                        <button type="button" onclick="addChoice()">보기 추가</button>
+                        <button type="button" onclick="removeChoice()">보기 삭제</button><br>
+                    </div>
+        
+                    <h3>분류</h3>
+                    <label>대분류:
+                        <select id="main_category" name="main_category">
+                            <option value="">대분류 선택</option>
+                        </select>
+                    </label><br>
+                    <label>중분류:
+                        <select id="sub_category" name="sub_category">
+                            <option value="">중분류 선택</option>
+                        </select>
+                    </label><br>
+                    <label>소분류:
+                        <select id="minor_category" name="minor_category">
+                            <option value="">소분류 선택</option>
+                        </select>
+                    </label><br>
+        
+                    <label>출처: <input type="text" name="source" value="{{ question.Source }}"></label><br>
+                    <label>태그: <textarea name="tags" rows="3">{{ question.Tags }}</textarea></label><br>
+        
+                    <input type="submit" value="수정">
+                </form>
+                <form action="{{ url_for('index') }}" method="GET">
+                    <button type="submit">취소</button>
+                </form>
+            </div>
+        </body>
+        
+        </html>
+
+        change_password.html
+        --------------------
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+           <meta charset="UTF-8">
+           <title>비밀번호 변경</title>
+           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+        </head>
+        <body>
+           <div class="form-container">
+               <h1>SSAT 출제 시스템</h1>
+               <h1>비밀번호 변경</h1>
+        
+        
+               {% with messages = get_flashed_messages(with_categories=true) %}
+                   {% if messages %}
+                       <ul class="flashes">
+                           {% for category, message in messages %}
+                               <li class="{{ category }}">{{ message }}</li>
+                           {% endfor %}
+                       </ul>
+                   {% endif %}
+               {% endwith %}
+        
+        
+               <form action="{{ url_for('change_password') }}" method="POST">
+                   <label>기존 비밀번호: <input type="password" name="old_password" required></label><br>
+                   <label>새 비밀번호: <input type="password" name="new_password" required></label><br>
+                   <label>새 비밀번호 확인: <input type="password" name="confirm_password" required></label><br>
+                   <input type="submit" value="변경">
+               </form>
+               <form action="{{ url_for('index') }}" method="GET">
+                   <button type="submit">취소</button>
+               </form>
+           </div>
+        </body>
+        </html>
+
+        manage_categories.html
+        ----------------------
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+           <meta charset="UTF-8">
+           <title>분류 관리</title>
+           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+           <style>
+               .button-group {
+                   display: flex;
+                   justify-content: space-between;
+                   margin-top: 10px;
+               }
+               .button-group button,
+               .button-group input[type="submit"] {
+                   flex: 1;
+                   margin-right: 10px;
+               }
+               .button-group button:last-child {
+                   margin-right: 0;
+               }
+           </style>
+        </head>
+        <body>
+           <div class="form-container">
+               <h1>SSAT 출제 시스템</h1>
+               <h1>분류 관리</h1>
+        
+        
+               {% with messages = get_flashed_messages(with_categories=true) %}
+                   {% if messages %}
+                       <ul class="flashes">
+                           {% for category, message in messages %}
+                               <li class="{{ category }}">{{ message }}</li>
+                           {% endfor %}
+                       </ul>
+                   {% endif %}
+               {% endwith %}
+        
+        
+               <form action="{{ url_for('manage_categories') }}" method="POST">
+                   <label>분류 JSON:</label><br>
+                   <textarea name="categories_content" rows="20" style="width: 100%;">{{ categories }}</textarea><br>
+                   <div class="button-group">
+                       <input type="submit" value="저장">
+                       <button type="button" onclick="window.location.href='{{ url_for('index') }}'">나가기</button>
+                   </div>
+               </form>
+               <a href="{{ url_for('download_categories') }}" class="download-btn">분류 JSON 다운로드</a>
+           </div>
+        </body>
+        </html>
+
+        register.html
+        -------------
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+           <meta charset="UTF-8">
+           <title>회원가입</title>
+           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+        </head>
+        <body>
+           <div class="form-container">
+               <h1>SSAT 출제 시스템</h1>
+               <h1>회원가입</h1>
+        
+        
+               {% with messages = get_flashed_messages(with_categories=true) %}
+                   {% if messages %}
+                       <ul class="flashes">
+                           {% for category, message in messages %}
+                               <li class="{{ category }}">{{ message }}</li>
+                           {% endfor %}
+                       </ul>
+                   {% endif %}
+               {% endwith %}
+        
+        
+               <form action="{{ url_for('register') }}" method="POST">
+                   <label>사용자 ID: <input type="text" name="user_id" required></label><br>
+                   <label>비밀번호: <input type="password" name="password" required></label><br>
+                   <input type="submit" value="회원가입">
+               </form>
+               <p class="switch-form">이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+           </div>
+        </body>
+        </html>
+
+    static/
+        styles.css
+        ----------
+        body {
+           font-family: Arial, sans-serif;
+           background-color: #f5f5f5;
+           margin: 0;
+           padding: 0;
+        }
+        
+        
+        h1, h2 {
+           text-align: center;
+           margin-top: 20px;
+        }
+        
+        
+        .form-container {
+           max-width: 800px;
+           margin: 20px auto;
+           padding: 20px;
+           border: 1px solid #ccc;
+           border-radius: 5px;
+           background-color: #fff;
+        }
+        
+        
+        form {
+           width: 100%;
+           margin: 0 auto;
+           padding: 20px 0;
+        }
+        
+        
+        label {
+           display: block;
+           margin-bottom: 10px;
+        }
+        
+        
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        textarea {
+           width: 100%;
+           padding: 8px;
+           margin-top: 5px;
+           margin-bottom: 20px;
+           border: 1px solid #ccc;
+           border-radius: 4px;
+        }
+        
+        
+        input[type="radio"] {
+           margin-right: 10px;
+        }
+        
+        
+        button {
+           padding: 10px 20px;
+           margin-right: 10px;
+           border: none;
+           border-radius: 4px;
+           background-color: #007bff;
+           color: white;
+           cursor: pointer;
+        }
+        
+        
+        button:hover {
+           background-color: #0056b3;
+        }
+        
+        
+        input[type="submit"] {
+           width: 100%;
+           padding: 10px;
+           border: none;
+           border-radius: 4px;
+           background-color: #28a745;
+           color: white;
+           cursor: pointer;
+           font-size: 16px;
+        }
+        
+        
+        input[type="submit"]:hover {
+           background-color: #218838;
+        }
+        
+        
+        .switch-form {
+           text-align: center;
+           margin-top: 20px;
+        }
+        
+        
+        #multiple_choice,
+        #subjective {
+           margin-top: 20px;
+        }
+        
+        
+        #choices label {
+           display: flex;
+           align-items: center;
+        }
+        
+        
+        #choices textarea {
+           flex: 1;
+           margin-left: 10px;
+        }
+        
+        
+        .flashes {
+           list-style-type: none;
+           padding: 0;
+           margin: 20px auto;
+           width: 50%;
+           text-align: center;
+        }
+        
+        
+        .flashes li {
+           padding: 10px;
+           border-radius: 5px;
+           margin-bottom: 10px;
+           color: white;
+        }
+        
+        
+        .flashes li.success {
+           background-color: #28a745;
+        }
+        
+        
+        .flashes li.error {
+           background-color: #dc3545;
+        }
+        
+        
+        .container {
+           max-width: 800px; /* 컨테이너의 최대 너비를 설정 */
+           margin: 20px auto;
+           padding: 20px;
+           border: 1px solid #ccc;
+           border-radius: 5px;
+           background-color: #fff;
+        }
+        
+        
+        .questions-list {
+           max-height: 400px;
+           overflow-y: auto;
+        }
+        
+        
+        .question {
+           margin-bottom: 20px;
+        }
+        
+        
+        .download-btn {
+           display: inline-block;
+           margin: 10px 0;
+           padding: 10px 20px;
+           border-radius: 4px;
+           background-color: #007bff;
+           color: white;
+           text-decoration: none;
+           cursor: pointer;
+        }
+        
+        
+        .download-btn:hover {
+           background-color: #0056b3;
+        }
+        
+        
+        .popup {
+           display: none;
+           position: fixed;
+           top: 50%;
+           left: 50%;
+           transform: translate(-50%, -50%);
+           width: 40%;
+           background-color: white;
+           box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+           padding: 20px;
+           z-index: 1000;
+           border-radius: 8px;
+        }
+        
+        
+        .popup-overlay {
+           display: none;
+           position: fixed;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           background: rgba(0,0,0,0.7);
+           z-index: 999;
+        }
+        
+        
+        .popup-header {
+           display: flex;
+           justify-content: space-between;
+           align-items: center;
+        }
+        
+        
+        .popup-header h2 {
+           margin: 0;
+        }
+        
+        
+        .popup-header .close {
+           cursor: pointer;
+           font-size: 1.5em;
+        }
+        
+        
+        #feedback-button {
+           position: fixed;
+           bottom: 20px;
+           right: 20px;
+           padding: 10px 20px;
+           background-color: #007bff;
+           color: white;
+           border: none;
+           border-radius: 4px;
+           cursor: pointer;
+           box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        
+        #feedback-button:hover {
+           background-color: #0056b3;
+        }
+        
+        
+        body {
+           padding: 0 10%;
+        }
+        
+        
+        textarea {
+           resize: vertical;
+        }
+        
+        
+        .title-container {
+           display: flex;
+           justify-content: center;
+           align-items: center;
+           margin-bottom: 20px;
+        }
+        
+        
+        .title-container h2 {
+           margin: 0;
+        }
+        
+        
+        .title-container .download-btn {
+           margin-left: 10px;
+        }
+        
+        
+        .admin-btns {
+           display: flex;
+           justify-content: center;
+           margin-bottom: 20px;
+        }
+        
+        
+        .admin-btns .download-btn {
+           margin: 0 10px;
+        }
+        
+        
+        .questions-list {
+           max-width: 800px;
+           margin: 0 auto;
+        }
+        
+        
+        .form-container {
+           max-width: 800px;
+           margin: 0 auto;
+        }
+        
+        
+        #mc_answers label {
+           display: inline-block;
+           margin-right: 10px;
+        }

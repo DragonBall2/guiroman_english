@@ -1,0 +1,10 @@
+[
+    {
+        "id": "yjoo.kwon",
+        "password": "scrypt:32768:8:1$Meov2aWwpC2tsq8T$bc97d4cb9cc7a79eb987905de2a8f1812d7da5dd32c634ff87bd3cdb684aed99eba9ed18de871f444c83343cf728a4a4706c28e7d934bc2964c8dafddcec80a4"
+    },
+    {
+        "id": "admin",
+        "password": "scrypt:32768:8:1$zWcjnOGjMaSujfLF$d4d0d44a7011ddfa88f4c086037ab186874dfbb7e2f84d2fa0ac261e1d3210adbc26c4720361f19c45491a1ba91375efe05a1dc0f05e5afd0ee23a8bb90e59aa"
+    }
+]

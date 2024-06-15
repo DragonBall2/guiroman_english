@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+   <meta charset="UTF-8">
+   <title>로그인</title>
+   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+   <div class="form-container">
+       <h1>SSAT 출제 시스템</h1>
+       <h1>로그인</h1>
+
+
+       {% with messages = get_flashed_messages(with_categories=true) %}
+           {% if messages %}
+               <ul class="flashes">
+                   {% for category, message in messages %}
+                       <li class="{{ category }}">{{ message }}</li>
+                   {% endfor %}
+               </ul>
+           {% endif %}
+       {% endwith %}
+
+
+       <form action="{{ url_for('login') }}" method="POST">
+           <label>사용자 ID: <input type="text" name="user_id" required></label><br>
+           <label>비밀번호: <input type="password" name="password" required></label><br>
+           <input type="submit" value="로그인">
+       </form>
+       <p class="switch-form">계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
+   </div>
+</body>
+</html>

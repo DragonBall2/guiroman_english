@@ -1,0 +1,42 @@
+{
+    "categories": [
+        {
+            "name": "대분류1",
+            "subcategories": [
+                {
+                    "name": "중분류1-1",
+                    "subcategories": [
+                        {"name": "소분류1-1-1"},
+                        {"name": "소분류1-1-2"}
+                    ]
+                },
+                {
+                    "name": "중분류1-2",
+                    "subcategories": [
+                        {"name": "소분류1-2-1"},
+                        {"name": "소분류1-2-2"}
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "대분류2",
+            "subcategories": [
+                {
+                    "name": "중분류2-1",
+                    "subcategories": [
+                        {"name": "소분류2-1-1"},
+                        {"name": "소분류2-1-2"}
+                    ]
+                },
+                {
+                    "name": "중분류2-2",
+                    "subcategories": [
+                        {"name": "소분류2-2-1"},
+                        {"name": "소분류2-2-2"}
+                    ]
+                }
+            ]
+        }
+    ]
+}

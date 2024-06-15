@@ -1,18 +1,679 @@
+<!DOCTYPE html>
+<html lang="ko">
+
 <head>
-    <title>{{ title }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+    <meta charset="UTF-8">
+    <title>문제를 출제 해 주세요.</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script>
+
+        function showForm() {
+            const selectedType = document.querySelector('input[name="question_type"]:checked');
+            if (!selectedType) return; // 라디오 버튼이 선택되지 않은 경우 함수 종료
+            const type = selectedType.value;
+            const multipleChoice = document.getElementById('multiple_choice');
+            const subjective = document.getElementById('subjective');
+            const fillInTheBlank = document.getElementById('fill_in_the_blank');
+
+            multipleChoice.style.display = type === 'multiple' ? 'block' : 'none';
+            subjective.style.display = type === 'subjective' ? 'block' : 'none';
+            fillInTheBlank.style.display = type === 'fill_in_the_blank' ? 'block' : 'none';
+
+            document.getElementsByName('mc_question')[0].disabled = type !== 'multiple';
+            document.getElementsByName('mc_choices[]').forEach(field => field.disabled = type !== 'multiple');
+            document.getElementsByName('mc_answers[]').forEach(field => field.disabled = type !== 'multiple');
+            document.getElementsByName('sub_question')[0].disabled = type !== 'subjective';
+            document.getElementsByName('sub_answer')[0].disabled = type !== 'subjective';
+            document.getElementsByName('fib_question')[0].disabled = type !== 'fill_in_the_blank';
+            document.getElementsByName('fib_answer[]').forEach(field => field.disabled = type !== 'fill_in_the_blank');
+        }
+
+        let originalBlanks = [];
+        let previousAnswers = [];
+        let initialQuestion = '';
+
+        function generateAnswerFields() {
+            const textarea = document.getElementsByName('fib_question')[0];
+            const question = textarea.value;
+            const blankMatches = question.match(/{\s*}/g) || [];
+            const blanks = blankMatches.map(blank => blank.length - 2); // 원래 공백 수 저장
+            const answerDiv = document.querySelector('#fib_answers');
+
+            // 기존 매핑을 저장
+            const existingAnswers = Array.from(document.getElementsByName('fib_answer[]')).map(input => input.value);
+
+            // 매핑을 유지하며 삭제된 blank에 대응하는 정답 제거
+            previousAnswers = previousAnswers.filter((_, index) => index < blanks.length);
+
+            if (answerDiv) {
+                answerDiv.innerHTML = '';
+                let updatedQuestion = question;
+                let currentAnswerIndex = 0;
+
+                for (let i = 0; i < blanks.length; i++) {
+                    const label = document.createElement('label');
+                    label.innerText = `Blank#${i + 1}: `;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.name = 'fib_answer[]';
+                    input.required = true;
+                    if (previousAnswers[currentAnswerIndex] !== undefined) {
+                        input.value = previousAnswers[currentAnswerIndex];
+                    } else if (existingAnswers[currentAnswerIndex] !== undefined) {
+                        input.value = existingAnswers[currentAnswerIndex];
+                    }
+                    currentAnswerIndex++;
+                    answerDiv.appendChild(label);
+                    answerDiv.appendChild(input);
+                    answerDiv.appendChild(document.createElement('br'));
+
+                    updatedQuestion = updatedQuestion.replace(/{\s*}/, `{Blank#${i + 1}}`);
+                }
+
+                originalBlanks = blanks;
+                initialQuestion = textarea.value;
+                textarea.value = updatedQuestion;
+                document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true; // 버튼 비활성화
+            } else {
+                console.error("Element with id 'fib_answers' not found.");
+            }
+        }
+
+        function resetBlanks() {
+            const textarea = document.getElementsByName('fib_question')[0];
+            let i = 0;
+            textarea.value = textarea.value.replace(/{Blank#\d+}/g, (match) => {
+                const blankCount = originalBlanks[i++];
+                return `{${' '.repeat(blankCount)}}`;
+            });
+            document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false; // 버튼 활성화
+        }
+
+        function enableGenerateButton() {
+            const textarea = document.getElementsByName('fib_question')[0];
+            if (textarea.value === initialQuestion) {
+                document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+            } else {
+                document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showForm();
+            const textarea = document.getElementsByName('fib_question')[0];
+            textarea.addEventListener('focus', resetBlanks);
+            textarea.addEventListener('input', enableGenerateButton);
+        });
+
+        function updateAnswerOptions() {
+            const choices = document.getElementsByName('mc_choices[]');
+            const answerDiv = document.getElementById('mc_answers');
+            answerDiv.innerHTML = '<h4>정답</h4>';
+
+
+            choices.forEach((choice, index) => {
+                if (choice.value.trim() !== '') {
+                    const label = document.createElement('label');
+                    label.style.marginRight = '10px';
+                    label.innerHTML = `<input type="checkbox" name="mc_answers[]" value="${index + 1}"> ${index + 1}`;
+                    answerDiv.appendChild(label);
+                }
+            });
+        }
+
+
+        function addChoice() {
+            const choicesDiv = document.getElementById('choices');
+            const choiceCount = choicesDiv.getElementsByTagName('label').length + 1;
+            const newChoice = document.createElement('div');
+            newChoice.innerHTML = `<label>${choiceCount}. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"></textarea></label><br>`;
+            choicesDiv.appendChild(newChoice);
+            updateAnswerOptions();
+        }
+
+
+        function removeChoice() {
+            const choicesDiv = document.getElementById('choices');
+            const choices = choicesDiv.getElementsByTagName('div');
+            if (choices.length > 2) {
+                choicesDiv.removeChild(choices[choices.length - 1]);
+                updateAnswerOptions();
+            }
+        }
+
+
+        function openPopup() {
+            document.getElementById('voc-popup').style.display = 'block';
+            document.getElementById('voc-popup-overlay').style.display = 'block';
+        }
+
+
+        function closePopup() {
+            document.getElementById('voc-popup').style.display = 'none';
+            document.getElementById('voc-popup-overlay').style.display = 'none';
+        }
+
+
+        function loadCategories() {
+            fetch('/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const mainCategorySelect = document.getElementById('main_category');
+                    mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
+                    data.categories.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category.name;
+                        option.text = category.name;
+                        mainCategorySelect.appendChild(option);
+                    });
+
+
+                    const lastMainCategory = '{{ request.cookies.get("last_main_category", "") }}';
+                    const lastSubCategory = '{{ request.cookies.get("last_sub_category", "") }}';
+                    const lastMinorCategory = '{{ request.cookies.get("last_minor_category", "") }}';
+
+
+                    if (lastMainCategory) {
+                        mainCategorySelect.value = lastMainCategory;
+                        updateSubcategories(() => {
+                            const subCategorySelect = document.getElementById('sub_category');
+                            if (lastSubCategory) {
+                                subCategorySelect.value = lastSubCategory;
+                                updateMinorCategories(() => {
+                                    const minorCategorySelect = document.getElementById('minor_category');
+                                    if (lastMinorCategory) {
+                                        minorCategorySelect.value = lastMinorCategory;
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+        }
+
+
+        function updateSubcategories(callback) {
+            const mainCategory = document.getElementById('main_category').value;
+            fetch('/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const subCategorySelect = document.getElementById('sub_category');
+                    subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
+                    const minorCategorySelect = document.getElementById('minor_category');
+                    minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                    const category = data.categories.find(category => category.name === mainCategory);
+                    if (category) {
+                        category.subcategories.forEach(subcategory => {
+                            const option = document.createElement('option');
+                            option.value = subcategory.name;
+                            option.text = subcategory.name;
+                            subCategorySelect.appendChild(option);
+                        });
+                    }
+                    if (callback) callback();
+                });
+        }
+
+
+        function updateMinorCategories(callback) {
+            const mainCategory = document.getElementById('main_category').value;
+            const subCategory = document.getElementById('sub_category').value;
+            fetch('/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const minorCategorySelect = document.getElementById('minor_category');
+                    minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                    const category = data.categories.find(category => category.name === mainCategory);
+                    if (category) {
+                        const subcategory = category.subcategories.find(sub => sub.name === subCategory);
+                        if (subcategory) {
+                            subcategory.subcategories.forEach(minor => {
+                                const option = document.createElement('option');
+                                option.value = minor.name;
+                                option.text = minor.name;
+                                minorCategorySelect.appendChild(option);
+                            });
+                        }
+                    }
+                    if (callback) callback();
+                });
+        }
+
+
+        function validateForm(event) {
+            const questionType = document.querySelector('input[name="question_type"]:checked').value;
+            if (questionType === 'multiple') {
+                const answers = document.querySelectorAll('input[name="mc_answers[]"]:checked');
+                if (answers.length === 0) {
+                    event.preventDefault();
+                    alert('객관식 문제의 경우, 적어도 하나의 정답을 선택해야 합니다.');
+                }
+            }
+        }
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCategories();
+            document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
+            document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
+            document.querySelector('form').addEventListener('submit', validateForm);
+            showForm();
+        });
+    </script>
+    <style>
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40%;
+            background-color: white;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            z-index: 1000;
+            border-radius: 8px;
+        }
+
+
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+        }
+
+
+        .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+
+        .popup-header h2 {
+            margin: 0;
+        }
+
+
+        .popup-header .close {
+            cursor: pointer;
+            font-size: 1.5em;
+        }
+
+
+        #feedback-button,
+        #download-users-button {
+            position: fixed;
+            bottom: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+
+        #feedback-button:hover,
+        #download-users-button:hover {
+            background-color: #0056b3;
+        }
+
+
+        #feedback-button {
+            right: 20px;
+        }
+
+
+        #download-users-button {
+            right: 220px;
+        }
+
+
+        body {
+            padding: 0 10%;
+        }
+
+
+        textarea {
+            resize: vertical;
+        }
+
+
+        .title-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+
+        .title-container h2 {
+            margin: 0;
+        }
+
+
+        .title-container .download-btn {
+            margin-left: 10px;
+        }
+
+
+        .admin-btns {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+
+        .admin-btns .download-btn {
+            margin: 0 10px;
+        }
+
+
+        .questions-list {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+
+        .form-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+
+        #mc_answers label {
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+
+        .chart-container {
+            margin-top: 40px;
+            text-align: center;
+        }
+
+
+        .chart-title {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #inputArea {
+            /* width: 100%; */
+            height: 100px;
+        }
+        #preview img {
+            margin-top: 10px;
+            max-width: 300px;  /* 이미지의 최대 너비를 100px로 설정 */
+            max-height: 300px; /* 이미지의 최대 높이를 100px로 설정 */
+        }
+    </style>
+</head>
 
 <body>
-    <div class="App">
-        <header class="App-header">
-            <img src="{{ url_for('static', filename='Octocat.png') }}" class="App-logo" alt="logo" />
-            <p>
-                GitHub Codespaces <span class="heart">♥️</span> Flask
-            </p>
-            <p class="small">
-                Edit <code>templates/index.html</code> and refresh to see your changes!
-            </p>
-        </header>
+    <h1 id="main-title">SSAT 출제 시스템</h1>
+    <h1>문제를 출제 해 주세요.</h1>
+
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <ul class="flashes">
+        {% for category, message in messages %}
+        <li class="{{ category }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
+
+    <p>환영합니다, {{ user.id }}님! <a href="{{ url_for('logout') }}">로그아웃</a> | <a
+            href="{{ url_for('change_password') }}">비밀번호 변경</a></p>
+
+
+    {% if user.id == 'admin' %}
+    <p><a href="{{ url_for('manage_categories') }}">분류 관리</a></p>
+    {% endif %}
+
+
+    <form action="/submit" method="POST" class="form-container">
+        <label>
+            <input type="radio" name="question_type" value="multiple" onclick="showForm()" {% if last_type=='multiple'
+                or last_type is none %}checked{% endif %}> 객관식
+        </label>
+        <label>
+            <input type="radio" name="question_type" value="subjective" onclick="showForm()" {% if
+                last_type=='subjective' %}checked{% endif %}> 주관식
+        </label>
+        <label>
+            <input type="radio" name="question_type" value="fill_in_the_blank" onclick="showForm()" {% if
+                last_type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
+        </label>
+
+
+
+        <h1>Paste Image in Text Area</h1>
+        <textarea id="inputArea" placeholder="Paste text or image here..."></textarea>
+        <div id="preview"></div>
+    
+        <script>
+            document.getElementById('inputArea').addEventListener('paste', function (event) {
+                const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                for (const item of items) {
+                    if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        const blob = item.getAsFile();
+                        const reader = new FileReader();
+                        reader.onload = function (event) {
+                            const img = document.createElement('img');
+                            img.src = event.target.result;
+                            document.getElementById('preview').appendChild(img);
+                        };
+                        reader.readAsDataURL(blob);
+                    }
+                }
+            });
+        </script>
+
+
+        <div id="multiple_choice"
+            style="display: {% if last_type == 'multiple' or last_type is none %}block{% else %}none{% endif %};">
+            <h3>객관식 문제</h3>
+            <div id="question">
+                <label for="mc_question">문제:</label>
+            </div>
+            <div id="question">
+                <textarea name="mc_question" id="mc_question" rows="3" required></textarea>
+            </div>
+            <div id="choices">
+                <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                            required></textarea></label><br></div>
+                <div><label>2. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                            required></textarea></label><br></div>
+                <div><label>3. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                            required></textarea></label><br></div>
+                <div><label>4. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                            required></textarea></label><br></div>
+            </div>
+            <button type="button" onclick="addChoice()">보기 추가</button>
+            <button type="button" onclick="removeChoice()">보기 제거</button><br>
+            <div id="mc_answers">
+                <h4>정답</h4>
+            </div>
+        </div>
+
+
+        <div id="subjective" style="display: {% if last_type == 'subjective' %}block{% else %}none{% endif %};">
+            <h3>주관식 문제</h3>
+            <label>문제: <textarea name="sub_question" rows="3" required></textarea></label><br>
+            <label>정답: <textarea name="sub_answer" rows="3" required></textarea></label><br>
+        </div>
+
+        <div id="fill_in_the_blank" style="display: {% if last_type == 'fill_in_the_blank' %}block{% else %}none{% endif %};">
+            <h3>빈칸 채우기 문제</h3>
+            <label>문제:  (작성예: 한국의 수도는{ }이고, 미국의 수도는 { }이다.)<textarea name="fib_question" rows="3" required></textarea></label><br>
+            <button type="button" onclick="generateAnswerFields()">정답 입력</button><br><br>
+            <div id="fib_answers"></div>
+            <div id="other_choices">
+                <h4>오답 보기 추가 (선택)</h4>
+                <div>
+                    <textarea name="fib_others[]" rows="2"></textarea>
+                </div>
+            </div>
+            <button type="button" onclick="addChoice()">보기 추가</button>
+            <button type="button" onclick="removeChoice()">보기 삭제</button><br>
+        </div>
+        
+        <script>
+            function addChoice() {
+                const otherChoicesDiv = document.getElementById('other_choices');
+                const newChoice = document.createElement('div');
+                newChoice.innerHTML = `<textarea name="fib_others[]" rows="2"></textarea>`;
+                otherChoicesDiv.appendChild(newChoice);
+            }
+        
+            function removeChoice() {
+                const otherChoicesDiv = document.getElementById('other_choices');
+                const choices = otherChoicesDiv.getElementsByTagName('div');
+                if (choices.length > 1) {
+                    otherChoicesDiv.removeChild(choices[choices.length - 1]);
+                }
+            }
+        </script>
+
+        <h3>분류</h3>
+        <label>대분류:
+            <select id="main_category" name="main_category">
+                <option value="">대분류 선택</option>
+            </select>
+        </label><br>
+        <label>중분류:
+            <select id="sub_category" name="sub_category">
+                <option value="">중분류 선택</option>
+            </select>
+        </label><br>
+        <label>소분류:
+            <select id="minor_category" name="minor_category">
+                <option value="">소분류 선택</option>
+            </select>
+        </label><br>
+
+
+        <label>출처: <input type="text" name="source" value="{{ request.cookies.get('last_source', '') }}"></label><br>
+        <label>태그: <textarea name="tags" rows="3">{{ last_tags }}</textarea></label><br>
+
+
+        <input type="submit" value="제출">
+    </form>
+
+
+    <button id="feedback-button" onclick="openPopup()">기능제안 및 버그신고</button>
+    {% if user.id == 'admin' %}
+    <button id="download-users-button" onclick="window.location.href='{{ url_for('download_users') }}'">USER 목록
+        다운로드</button>
+    {% endif %}
+
+
+    <div id="voc-popup" class="popup">
+        <div class="popup-header">
+            <h2>기능제안 및 버그신고</h2>
+            <span class="close" onclick="closePopup()">&times;</span>
+        </div>
+        <form action="/submit_voc" method="POST" class="voc-container">
+            <label for="voc_type">유형:</label>
+            <select id="voc_type" name="voc_type" required>
+                <option value="Feature Suggestion">기능 제안</option>
+                <option value="Bug Report">버그 신고</option>
+            </select><br>
+            <label for="voc_content">내용:</label>
+            <textarea id="voc_content" name="voc_content" rows="4" required></textarea><br>
+            <input type="submit" value="제출">
+        </form>
+        {% if user.id == 'admin' %}
+        <a href="{{ url_for('download_voc') }}" class="download-btn" style="float: right;">VOC JSON 다운로드</a>
+        {% endif %}
+    </div>
+    <div id="voc-popup-overlay" class="popup-overlay" onclick="closePopup()"></div>
+
+
+    <div class="container">
+        <div class="title-container">
+            <h2>문제 목록</h2>
+            {% if user.id == 'admin' %}
+            <a href="{{ url_for('download') }}" class="download-btn">JSON 다운로드</a>
+            {% endif %}
+        </div>
+        <div class="question-count">문제 수: {{ questions | length }}</div> <br> <!-- 문제 수 표시 -->
+        <div class="questions-list">
+            {% if questions %}
+            {% for question in questions %}
+            <div class="question">
+                <p><strong>ID:</strong> {{ question.ID }}</p>
+                <p><strong>유형:</strong> {{ question.Type }}</p>
+                <p><strong>문제:</strong> {{ question.Question }}</p>
+                {% if question.Choices %}
+                <p><strong>보기:</strong></p>
+                <ul>
+                    {% for choice in question.Choices %}
+                    <li>{{ choice }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                <p><strong>정답:</strong>
+                    {% if question.Type == 'fill_in_the_blank' %}
+                <ul>
+                    {% if question.Answers is mapping %}
+                    {% for key, value in question.Answers.items() %}
+                    <li>{{ key }}: {{ value }}</li>
+                    {% endfor %}
+                    {% else %}
+                    {% for answer in question.Answers %}
+                    <li>{{ answer }}</li>
+                    {% endfor %}
+                    {% endif %}
+                </ul>
+                {% else %}
+                <ul>
+                    {% for answer in question.Answers %}
+                    <li>{{ answer }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                </p>
+                <p><strong>대분류:</strong> {{ question.Category.main if question.Category else '' }}</p>
+                <p><strong>중분류:</strong> {{ question.Category.sub if question.Category else '' }}</p>
+                <p><strong>소분류:</strong> {{ question.Category.minor if question.Category else '' }}</p>
+                <p><strong>태그:</strong> {{ question.Tags }}</p>
+                <p><strong>출처:</strong> {{ question.Source }}</p>
+                <p><strong>제출자 ID:</strong> {{ question.SubmitterID }}</p>
+                <p><strong>제출 시간:</strong> {{ question.SubmissionTime }}</p>
+                <p><strong>마지막 수정 시간:</strong> {{ question.LastModifiedTime }}</p>
+                <form action="{{ url_for('edit_question', question_id=question.ID) }}" method="GET"
+                    style="display:inline;">
+                    <button type="submit">수정</button>
+                </form>
+                <form action="{{ url_for('delete_question', question_id=question.ID) }}" method="POST"
+                    style="display:inline;">
+                    <button type="submit">삭제</button>
+                </form>
+                <hr>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p>아직 제출된 질문이 없습니다.</p>
+            {% endif %}
+        </div>
+
+    </div>
+
+
+    <div class="chart-container">
+        <h2 class="chart-title">출제 현황 (Total: {{ total_questions }})</h2>
+        <img src="data:image/png;base64,{{ chart_base64 }}" alt="출제 현황">
     </div>
 </body>
 
