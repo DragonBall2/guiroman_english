@@ -8,6 +8,14 @@ from io import BytesIO
 import base64
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from google.cloud import storage
+
+# Google Cloud Storage 초기화
+def init_storage_client():
+    return storage.Client()
+
+storage_client = init_storage_client()
+bucket_name = 'guiroman_english_bucket'  # 실제 버킷 이름으로 대체
 
 
 app = Flask(__name__)
@@ -26,24 +34,28 @@ CATEGORIES_FILE = 'categories.json'
 FONT_PATH = 'templates/NanumGothic.ttf'
 
 
-if not os.path.exists(DATA_FILE):
-   with open(DATA_FILE, 'w', encoding='utf-8') as f:
-       json.dump([], f, ensure_ascii=False, indent=4)
+def upload_to_gcs(bucket_name, destination_blob_name, data):
+    #import pdb; pdb.set_trace()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_string(data, content_type='application/json')
 
+def download_from_gcs(bucket_name, source_blob_name):
+    #import pdb; pdb.set_trace()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(source_blob_name)
+    return blob.download_as_string()
 
-if not os.path.exists(USERS_FILE):
-   with open(USERS_FILE, 'w', encoding='utf-8') as f:
-       json.dump([], f, ensure_ascii=False, indent=4)
+def init_file_in_gcs(bucket_name, blob_name, initial_data):
+    try:
+        download_from_gcs(bucket_name, blob_name)
+    except:
+        upload_to_gcs(bucket_name, blob_name, json.dumps(initial_data, ensure_ascii=False, indent=4))
 
-
-if not os.path.exists(VOC_FILE):
-   with open(VOC_FILE, 'w', encoding='utf-8') as f:
-       json.dump([], f, ensure_ascii=False, indent=4)
-
-
-if not os.path.exists(CATEGORIES_FILE):
-   with open(CATEGORIES_FILE, 'w', encoding='utf-8') as f:
-       json.dump({'categories': []}, f, ensure_ascii=False, indent=4)
+init_file_in_gcs(bucket_name, 'data.json', [])
+init_file_in_gcs(bucket_name, 'users.json', [])
+init_file_in_gcs(bucket_name, 'voc.json', [])
+init_file_in_gcs(bucket_name, 'categories.json', {'categories': []})
 
 
 class User(UserMixin):
@@ -54,8 +66,7 @@ class User(UserMixin):
 
    @staticmethod
    def get(user_id):
-       with open(USERS_FILE, 'r', encoding='utf-8') as f:
-           users = json.load(f)
+       users = json.loads(download_from_gcs(bucket_name, 'users.json').decode('utf-8'))
        user = next((u for u in users if u['id'] == user_id), None)
        if user:
            user_obj = User(user['id'])
@@ -123,8 +134,7 @@ def generate_category_pie_chart(data):
 @app.route('/')
 @login_required
 def index():
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
     if current_user.id == 'admin':
         user_questions = data
     else:
@@ -165,11 +175,9 @@ def register():
        else:
            user = User(user_id)
            user.set_password(password)
-           with open(USERS_FILE, 'r', encoding='utf-8') as f:
-               users = json.load(f)
+           users = json.loads(download_from_gcs(bucket_name, 'users.json').decode('utf-8'))
            users.append({'id': user_id, 'password': user.password_hash})
-           with open(USERS_FILE, 'w', encoding='utf-8') as f:
-               json.dump(users, f, ensure_ascii=False, indent=4)
+           upload_to_gcs(bucket_name, 'users.json', json.dumps(users, ensure_ascii=False, indent=4))
            flash('User registered successfully!', 'success')
            return redirect(url_for('login'))
    return render_template('register.html')
@@ -177,6 +185,7 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+   #import pdb; pdb.set_trace()
    if request.method == 'POST':
        user_id = request.form['user_id']
        password = request.form['password']
@@ -270,8 +279,7 @@ def submit_question():
     source = request.form['source']
 
     try:
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
 
         new_id = max([item['ID'] for item in data], default=0) + 1 if data else 1
 
@@ -295,8 +303,7 @@ def submit_question():
 
         data.append(new_data)
 
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        upload_to_gcs(bucket_name, 'data.json', json.dumps(data, ensure_ascii=False, indent=4))
 
         flash('Question successfully submitted!', 'success')
         response = redirect(url_for('index'))
@@ -316,8 +323,7 @@ def submit_question():
 @app.route('/edit/<int:question_id>', methods=['GET', 'POST'])
 @login_required
 def edit_question(question_id):
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
     
     # 기존 데이터를 찾음
     question = next((q for q in data if q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin')), None)
@@ -376,8 +382,7 @@ def edit_question(question_id):
         data = [q if q['ID'] != question_id else new_question for q in data]
         
         # 데이터 파일에 저장
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        upload_to_gcs(bucket_name, 'data.json', json.dumps(data, ensure_ascii=False, indent=4))
         
         flash('Question successfully updated!', 'success')
         return redirect(url_for('index'))
@@ -397,16 +402,15 @@ import shutil
 @login_required
 def delete_question(question_id):
     try:
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
         question = next((q for q in data if q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin')), None)
         if question:
             folder_path = os.path.join(app.config['UPLOAD_FOLDER'], str(question_id))
             if os.path.exists(folder_path):
                 shutil.rmtree(folder_path)
             data = [q for q in data if q['ID'] != question_id]
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+            upload_to_gcs(bucket_name, 'data.json', json.dumps(data, ensure_ascii=False, indent=4))
+
             flash('Question and associated images successfully deleted!', 'success')
         else:
             flash('Question not found or you do not have permission to delete it.', 'error')
@@ -452,13 +456,11 @@ def submit_voc():
 
 
    try:
-       with open(VOC_FILE, 'r', encoding='utf-8') as f:
-           voc_data = json.load(f)
+       voc_data = json.loads(download_from_gcs(bucket_name, 'voc.json').decode('utf-8'))
       
        voc_data.append(new_voc)
       
-       with open(VOC_FILE, 'w', encoding='utf-8') as f:
-           json.dump(voc_data, f, ensure_ascii=False, indent=4)
+       upload_to_gcs(bucket_name, 'voc.json', json.dumps(voc_data, ensure_ascii=False, indent=4))
 
 
        flash('VOC successfully submitted!', 'success')
@@ -499,8 +501,7 @@ def download_categories():
 @app.route('/categories', methods=['GET'])
 @login_required
 def get_categories():
-   with open(CATEGORIES_FILE, 'r', encoding='utf-8') as f:
-       categories = json.load(f)
+   categories = json.loads(download_from_gcs(bucket_name, 'categories.json').decode('utf-8'))
    return jsonify(categories)
 
 
@@ -516,14 +517,12 @@ def manage_categories():
        categories_content = request.form['categories_content']
        try:
            categories = json.loads(categories_content)
-           with open(CATEGORIES_FILE, 'w', encoding='utf-8') as f:
-               json.dump(categories, f, ensure_ascii=False, indent=4)
+           upload_to_gcs(bucket_name, 'categories.json', json.dumps(categories, ensure_ascii=False, indent=4))
            flash('Categories updated successfully!', 'success')
        except json.JSONDecodeError:
            flash('Invalid JSON format.', 'error')
   
-   with open(CATEGORIES_FILE, 'r', encoding='utf-8') as f:
-       categories = json.load(f)
+   categories = json.loads(download_from_gcs(bucket_name, 'categories.json').decode('utf-8'))
    return render_template('manage_categories.html', categories=json.dumps(categories, ensure_ascii=False, indent=4))
 
 
@@ -545,14 +544,12 @@ def change_password():
            flash('New passwords do not match.', 'error')
        else:
            user.set_password(new_password)
-           with open(USERS_FILE, 'r', encoding='utf-8') as f:
-               users = json.load(f)
+           users = json.loads(download_from_gcs(bucket_name, 'users.json').decode('utf-8'))
            for u in users:
                if u['id'] == user.id:
                    u['password'] = user.password_hash
                    break
-           with open(USERS_FILE, 'w', encoding='utf-8') as f:
-               json.dump(users, f, ensure_ascii=False, indent=4)
+           upload_to_gcs(bucket_name, 'users.json', json.dumps(users, ensure_ascii=False, indent=4))
            flash('Password changed successfully!', 'success')
            return redirect(url_for('index'))
    return render_template('change_password.html')
