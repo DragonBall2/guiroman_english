@@ -1,18 +1,47 @@
 Project structure
 -----------------
 ./
+    requirements.txt
+    .gitignore
     app.py
+    app.yaml
+    .gcloudignore
+    __pycache__/
+        app.cpython-310.pyc
     templates/
-        login.html
-        index.html
-        edit_question.html
-        change_password.html
         manage_categories.html
+        edit_question.html
+        index.html
         register.html
+        change_password.html
+        login.html
     static/
         styles.css
 
 ./
+    requirements.txt
+    ----------------
+    # # Flask==2.1.2
+    # Flask==3.0.3
+    # Flask-Login==0.6.2
+    # matplotlib==3.5.2
+    # # Werkzeug==2.1.2
+    # Werkzeug==3.0.3
+    # gunicorn==20.1.0
+    # google-cloud-storage==2.2.0
+    # cryptography==3.4.8
+    
+    Flask==3.0.3
+    Flask-Login==0.6.3
+    matplotlib==3.8.3
+    werkzeug==3.0.3
+
+    .gitignore
+    ----------
+    __pycache__/
+    google-cloud-sdk
+    google-cloud-cli-478.0.0-linux-x86_64.tar.gz
+
     app.py
     ------
     from flask import Flask, render_template, request, redirect, flash, url_for, send_file, jsonify
@@ -211,6 +240,23 @@ Project structure
                return response
        return render_template('login.html')
     
+    # @app.route('/login', methods=['GET', 'POST'])
+    # def login():
+    #     if request.method == 'POST':
+    #         try:
+    #             user_id = request.form['user_id']
+    #             password = request.form['password']
+    #             user = User.get(user_id)
+    #             if user is None or not user.check_password(password):
+    #                 flash('Invalid user ID or password.', 'error')
+    #                 return redirect(url_for('login'))
+    #             login_user(user)
+    #             return redirect(url_for('index'))
+    #         except Exception as e:
+    #             flash(f'An error occurred: {str(e)}', 'error')
+    #             return redirect(url_for('login'))
+    #     return render_template('login.html')
+    
     
     @app.route('/logout')
     @login_required
@@ -224,6 +270,22 @@ Project structure
        response.set_cookie('last_tags', '', expires=0)
        return response
     
+    
+    from werkzeug.utils import secure_filename
+    
+    UPLOAD_FOLDER = '/tmp/image_data'
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+    
+    def save_image(file, filename):
+        if file:
+            folder_path = os.path.join(app.config['UPLOAD_FOLDER'], str(filename.split('_')[-1].split('.')[0]))
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+            filepath = os.path.join(folder_path, filename)
+            file.save(filepath)
+            return filepath
+        return None
     
     @app.route('/submit', methods=['POST'])
     @login_required
@@ -375,19 +437,50 @@ Project structure
     
     
     
+    import shutil
+    
     @app.route('/delete/<int:question_id>', methods=['POST'])
     @login_required
     def delete_question(question_id):
-       try:
-           with open(DATA_FILE, 'r', encoding='utf-8') as f:
-               data = json.load(f)
-           data = [q for q in data if not (q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin'))]
-           with open(DATA_FILE, 'w', encoding='utf-8') as f:
-               json.dump(data, f, ensure_ascii=False, indent=4)
-           flash('Question successfully deleted!', 'success')
-       except Exception as e:
-           flash(f'An error occurred while deleting the question: {e}', 'error')
-       return redirect(url_for('index'))
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            question = next((q for q in data if q['ID'] == question_id and (q['SubmitterID'] == current_user.id or current_user.id == 'admin')), None)
+            if question:
+                folder_path = os.path.join(app.config['UPLOAD_FOLDER'], str(question_id))
+                if os.path.exists(folder_path):
+                    shutil.rmtree(folder_path)
+                data = [q for q in data if q['ID'] != question_id]
+                with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                flash('Question and associated images successfully deleted!', 'success')
+            else:
+                flash('Question not found or you do not have permission to delete it.', 'error')
+        except Exception as e:
+            flash(f'An error occurred while deleting the question: {e}', 'error')
+        return redirect(url_for('index'))
+    
+    @app.route('/delete_image', methods=['POST'])
+    @login_required
+    def delete_image():
+        try:
+            data = request.get_json()
+            question_id = data['question_id']
+            image_type = data['image_type']
+            filename_map = {
+                'question_image': f'img_question_{question_id}.png',
+                'answer_image': f'img_answer_{question_id}.png'
+            }
+            if 'choice_image_' in image_type:
+                choice_num = image_type.split('_')[2]
+                filename_map[image_type] = f'img_choice_{choice_num}_{question_id}.png'
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], str(question_id), filename_map[image_type])
+            if os.path.exists(image_path):
+                os.remove(image_path)
+            return jsonify(success=True)
+        except Exception as e:
+            return jsonify(success=False, error=str(e))
+    
     
     
     @app.route('/submit_voc', methods=['POST'])
@@ -514,20 +607,586 @@ Project structure
     if __name__ == '__main__':
        app.run(debug=True,port=4444)
 
+    app.yaml
+    --------
+    runtime: python310  # 또는 사용 중인 Python 버전
+    
+    entrypoint: gunicorn -w 2 -b :$PORT app:app
+    
+    handlers:
+    - url: /static
+      static_dir: static
+    
+    - url: /.*
+      script: auto
+
+    .gcloudignore
+    -------------
+    # This file specifies files that are *not* uploaded to Google Cloud
+    # using gcloud. It follows the same syntax as .gitignore, with the addition of
+    # "#!include" directives (which insert the entries of the given .gitignore-style
+    # file at that point).
+    #
+    # For more information, run:
+    #   $ gcloud topic gcloudignore
+    #
+    .gcloudignore
+    # If you would like to upload your .git directory, .gitignore file or files
+    # from your .gitignore file, remove the corresponding line
+    # below:
+    .git
+    .gitignore
+    google-cloud-sdk
+    google-cloud-cli-478.0.0-linux-x86_64.tar.gz
+    
+    
+    # Python pycache:
+    __pycache__/
+    # Ignored by the build system
+    /setup.cfg
+
+    __pycache__/
+        app.cpython-310.pyc
+        -------------------
+        o
+        
+            nf&K                     @   s4  d dl mZmZmZmZmZmZmZmZ d dl	m
+        Z
+        m
+        Z
+        m
+        Z
+        m
+        Z
+        mZmZ d dlZd dlZd dlmZ d dlmZ d dlmZ d dlZd dlm
+        Z
+        m
+        Z
+         d dl
+        m
+        Z
+         eeZ de _!e
+         Z"e"#e  de"_$d	Z%d
+        Z&d
+        Z'd
+        Z(d
+        Z)ej*+e%se,e%dddZ-ej.g e-ddd W d   n1 sw   Y  ej*+e&se,e&dddZ-ej.g e-ddd W d   n1 sw   Y  ej*+e'se,e'dddZ-ej.g e-ddd W d   n1 sw   Y  ej*+e(se,e(dddZ-ej.dg ie-ddd W d   n	1 sw   Y  G dd de
+        Z/e"j0dd Z1dd Z2dd
+         Z3e 4d
+        e
+        d
+        d Z5e j4d d!d"gd#d$d% Z6e j4d&d!d"gd#d'd Z7e 4d(e
+        d)d* Z8d d+l9m:Z: d,Z;ej*+e;sce<e; d-d. Z=e j4d/d"gd#e
+        d0d1 Z>e j4d2d!d"gd#e
+        d3d4 Z?d dl@Z@e j4d5d"gd#e
+        d6d7 ZAe j4d8d"gd#e
+        d9d: ZBe j4d;d"gd#e
+        d<d= ZCe 4d>e
+        d?d@ ZDe 4dAe
+        dBdC ZEe 4dDe
+        dEdF ZFe 4dGe
+        dHdI ZGe j4dJd!gd#e
+        dKdL ZHe j4dMd!d"gd#e
+        dNdO ZIe j4dPd!d"gd#e
+        dQdR ZJedSkre jKdTdUdV dS dS )W    )Flaskrender_templaterequestredirectflashurl_for	send_filejsonify)
+        LoginManager	UserMixin
+        login_userlogin_required
+        logout_user
+        current_userN)BytesIO)generate_password_hashcheck_password_hash)datetimeZyour_secret_keyloginz	data.jsonz
+        users.jsonzvoc.jsonzcategories.jsonztemplates/NanumGothic.ttfwutf-8encodingF   
+        ensure_asciiindent
+        categoriesc                   @   s0   e Zd Zdd Zedd Zdd Zdd Zd	S )
+        Userc                 C   s   || _ d | _d S N)id
+        password_hash)selfr     r#   #/workspaces/codespaces-flask/app.py__init__2   s   
+        z
+        User.__init__c                    sr   t tddd
+        }t|}W d    n1 sw   Y  t fdd|D d }|r7t|d }|d |_|S d S )Nrr   r   c                 3   s     | ]
+        }|d   kr|V  qdS )r    Nr#   ).0uuser_idr#   r$   	<genexpr>;   s   
+         zUser.get.<locals>.<genexpr>r    password)open
+        USERS_FILEjsonloadnextr
+           r!   )r*   fusersuserZuser_objr#   r)   r$   get7   s   
+        
+        
+        
+        zUser.getc                 C   s   t || _d S r   )r   r!   r"   r,   r#   r#   r$   
+        set_passwordC   s   zUser.set_passwordc                 C   s
+           t | j|S r   )r   r!   r6   r#   r#   r$   check_passwordG   s   
+        zUser.check_passwordN)__name__
+        __module__
+        __qualname__r%   
+        staticmethodr5   r7   r8   r#   r#   r#   r$   r
+           1   s
+            
+        
+        
+        r
+           c                 C   s
+           t | S r   )r
+           r5   r)   r#   r#   r$   	load_userK   s   
+        r=   c                    s    fdd}|S )Nc                    s0   t  }tt| | d }| dd|ddS )Ng      Y@z.1fz%
+        (d))sumintround)Zpcttotalvalvaluesr#   r$   	my_formatQ   s   z!autopct_format.<locals>.my_formatr#   )rF   rG   r#   rE   r$   autopct_formatP   s   
+        rH   c           
+              C   s  i }t | }| D ]+}d|v r3d|d v r3|d d r |d d nd}||v r/||  d7  < qd||< qt| }t| }tjtdd}tjdd tj	||t
+        |d	d
+         t
+         j
+        D ]}|
+        | q]t  t }	tj|	d
+        d
+         |	d
+         t|	  }
+        t  |
+        S )NCategorymainu	   미분류   
+           )fnamesize)   rO   )Zfigsize   )labelsZautopctZ
+        startangleZpng)formatr   )lenlistkeysrF   fmZFontProperties	FONT_PATHpltZfigureZpierH   ZgcaZtextsZset_fontpropertiesZ
+        tight_layoutr   Zsavefigseekbase64	b64encodegetvaluedecodeclose)
+        dataZcategory_counttotal_questionsquestioncategoryrQ   ZsizesZfontproplabelZimgZ
+        img_base64r#   r#   r$   generate_category_pie_chartX   s.   
+        
+        
+        
+        
+        
+        rd   /c            	   
+           C   s  t tddd
+        } t| }W d    n1 sw   Y  tjdkr$|}ndd |D }tjd}tjdd	tjd
+        d	tjd
+        d	d
+        }tjd
+        }tjdd	}|D ]
+        }d|vr_d|d< d|vrgd|d< d|vso|d ssd|d< qUt	|}t
+        d|t|||||t
+        |d	S )Nr&   r   r   adminc                 S   s
+           g | ]
+        }|d  t jkr|qS )
+        SubmitterIDr   r    r'   qr#   r#   r$   
+        <listcomp>   s   
+         zindex.<locals>.<listcomp>	last_typelast_main_category last_sub_categorylast_minor_categoryrJ   subminor	last_tags
+        last_sourceSourceu
+           출처 없음SubmissionTimezN/ALastModifiedTimeu   수정되지 않음z
+        index.html)Z	questionsr4   rl   
+        last_categoryrt   ru   
+        chart_base64r`   )
+        r-   	DATA_FILEr/   r0   r   r    r   cookiesr5   rd   r   rS   )	r2   r_   Zuser_questionsrl   ry   rt   ru   ra   rz   r#   r#   r$   index{   s.   
+        
+        
+        
+        
+        
+        
+        
+        
+        r}   z	/registerGETPOST)methodsc                  C   s   t jdkrzt jd } t jd }t| }|d ur!tdd tdS t| }|| ttddd
+        }t	
+        |}W d    n1 sAw   Y  |
+        | |j
+        d	 ttd
+        dd}t	j
+        ||d
+        d
+        d
+         W d    n1 sjw   Y  tdd ttdS tdS )Nr   r*   r,   zUser ID already exists.errorr&   r   r   )r    r,   r   Fr   r   z
+        User registered successfully!successr   z
+        register.html)r   methodformr
+           r5   r   r7   r-   r.   r/   r0   appendr!   dumpr   r   r   )r*   r,   r4   r2   r3   r#   r#   r$   register   s&   
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        r   z/loginc                  C   s   t jdkrZt jd } t jd }t| }|d u s
+        ||s&tdd t
+        dS t| tt	d}|j
+        ddd	d
+         |j
+        d
+        dd	d
+         |j
+        d
+        dd	d
+         |j
+        d
+        dd	d
+         |j
+        ddd	d
+         |S t
+        dS )Nr   r*   r,   z
+        Invalid user ID or password.r   r}   rl   rn   r   expiresrm   ro   rp   rt   z
+        login.html)
+        r   r   r   r
+           r5   r8   r   r
+           r   r   
+        set_cookier   )r*   r,   r4   responser#   r#   r$   r      s    
+        
+        
+        
+        
+        
+        
+        z/logoutc                  C   sf   t   ttd} | jdddd | jdddd | jdddd | jdddd | jd	ddd | S )
+        Nr   rl   rn   r   r   rm   ro   rp   rt   )r   r   r   r   )r   r#   r#   r$   logout   s   
+        r   )secure_filenamez/tmp/image_datac                 C   sf   | r1t jtjd t|dd dd }t j|s#t | t j||}| 	| |S d S )N
+        UPLOAD_FOLDER_.r   )
+        ospathjoinappconfigstrsplitexistsmakedirssave)filefilename
+        folder_pathfilepathr#   r#   r$   
+        save_image   s   ,
+        
+        
+        r   z/submitc               
+           C   s`  t jd } g }| dkr
+        t jd }t jd}t jd}nB| dkr/t jd }t jd }|g}n0| d	kr_t jd
+         }t jd
+        }t jd
+        }d
+        d t|D }t|D ]
+        \}}||d|d  < qQt jd }	t jd }
+        t jd }
+        t jd }
+        t jd }
+        zttddd
+        }t|}W d    n1 sw   Y  |rtdd |D dd
+        d nd}|| |||t	j
+        |	|
+        |
+        d
+        |
+        |
+        t
+        
+         
+        d
+        dd 
+        }|| ttd!dd}tj||d"d#d$ W d    n1 sw   Y  td%d& ttd'}|d(|  |d)|	 |d*|
+         |d+|
+         |d,|
+         |W S  ty) } ztd-| d. W Y d }~nd }~ww ttd'S )/N
+        question_typemultiple
+        mc_question
+        mc_choices[]
+        mc_answers[]
+        subjective
+        sub_question
+        sub_answerfill_in_the_blank
+        fib_question
+        fib_answer[]
+        fib_others[]c                 S       i | ]
+        \}}d |d  |qS zBlank#rK   r#   r'   ianswerr#   r#   r$   
+        <dictcomp>       z#submit_question.<locals>.<dictcomp>other#rK   
+        main_category
+        sub_categoryminor_categorytagssourcer&   r   r   c                 S   s   g | ]}|d  qS IDr#   )r'   itemr#   r#   r$   rk     s    z#submit_question.<locals>.<listcomp>r   )defaultrq   %Y-%m-%d %H:%M:%Srn   )
+        r   TypeQuestionChoicesAnswersrg   rI   Tagsrv   rw   rx   r   Fr   r   z Question successfully submitted!r   r}   rl   rm   ro   rp   rt   z1An error occurred while submitting the question: r   )r   r   getlist	enumerater-   r{   r/   r0   maxr   r    r   nowstrftimer   r   r   r   r   r   	Exception)r   choicesra   answersr   
+        raw_answersZothersr   otherr   r   r   r   r   r2   r_   Znew_idZnew_datar   er#   r#   r$   submit_question   sv   
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        "
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        r   z/edit/<int:question_id>c           
+           
+              s
+          t tddd
+        }t|}W d    n1 sw   Y  tfdd|D d }|d u r7tdd ttdS tj	d	krtj
+        d
+         }i  |d
+        krYtj
+        d
+         tj
+        
+        d
+        tj
+        
+        dd nF|dkrktj
+        d tj
+        d gd d n4|dkrtj
+        
+        d}tj
+        
+        d}dd t
+        |D }t
+        |D ]
+        \}}	|	|d|d  < qtj
+        d |d d  
+        |d
+         |tjtj
+        d
+         tj
+        d
+         tj
+        d d tj
+        d! tj
+        d" |d# t d$d%  fd&d'|D }t td(dd}tj||d)d*d+ W d    n1 sw   Y  td,d- ttdS td.|d/S )0Nr&   r   r   c                 3   8    | ]}|d   kr|d t jkst jdkr|V  qdS r   rg   rf   Nrh   ri   
+        question_idr#   r$   r+   C     6 z edit_question.<locals>.<genexpr>z<Question not found or you do not have permission to edit it.r   r}   r   r   r   r   r   r   )r   r   r   r   r   r   )r   r   r   r   r   r   c                 S   r   r   r#   r   r#   r#   r$   r   ]  r   z!edit_question.<locals>.<dictcomp>r   rK   r   r   r   r   r   rq   r   r   rw   r   )r   r   rg   rI   r   rv   rw   rx   c                    s    g | ]
+        }|d  kr
+        |n qS r   r#   ri   Z
+        new_questionr   r#   r$   rk   x  r   z!edit_question.<locals>.<listcomp>r   Fr   r   z
+        Question successfully updated!r   zedit_question.html)ra   )r-   r{   r/   r0   r1   r   r   r   r   r   r   r   r   updater   r    r   r   r   r   r   )
+        r   r2   r_   ra   r   r   Z
+        other_choicesr   r   r   r#   r   r$   
+        edit_question<  sd   
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        r   z/delete/<int:question_id>c              
+              s0  zwt tddd
+        }t|}W d    n1 sw   Y  t fdd|D d }|rqtjtj	d t
+         }tj
+        |rBt
+        
+        |  fdd|D }t td	dd}tj||d
+        d
+        d
+         W d    n1 sfw   Y  td
+        d ntdd W n ty } ztd| d W Y d }~nd }~ww ttdS )Nr&   r   r   c                 3   r   r   rh   ri   r   r#   r$   r+     r   z"delete_question.<locals>.<genexpr>r   c                    s
+           g | ]
+        }|d   kr|qS r   r#   ri   r   r#   r$   rk     s   
+         z#delete_question.<locals>.<listcomp>r   Fr   r   z4Question and associated images successfully deleted!r   z>Question not found or you do not have permission to delete it.r   z/An error occurred while deleting the question: r}   )r-   r{   r/   r0   r1   r   r   r   r   r   r   r   shutilrmtreer   r   r   r   r   )r   r2   r_   ra   r   r   r#   r   r$   delete_question  s*   
+        
+        
+        
+        
+        
+        
+        
+        
+        r   z
+        /delete_imagec               
+           C   s   zOt  } | d }| d }d| dd| dd}d|v r0|dd	 }d
+        | d| d||< tjtjd
+         t||| }tj	|rJt
+        | t
+        d
+        d
+        W S  t
+        yi } zt
+        dt|dW  Y d }~S d }~ww )Nr   
+        image_typeZ
+        img_question_z.pngZ
+        img_answer_)Zquestion_imageZ
+        answer_imageZ
+        choice_image_r      Z
+        img_choice_r   T)r   F)r   r   )
+        r   get_jsonr   r   r   r   r   r   r   r   remover	   r   )r_   r   r   Z
+        filename_mapZ
+        choice_numZ
+        image_pathr   r#   r#   r$   
+        delete_image  s$   
+        
+        
+        
+        
+        
+        
+        r   z
+        /submit_vocc               
+           C   s   t jd } t jd }| |tjd}zHttddd
+        }t|}W d    n1 s)w   Y  || ttddd}tj	||dd	d
+         W d    n1 sNw   Y  t
+        d
+        d
+         W n t
+        ys } zt
+        d
+        | d W Y d }~nd }~ww t
+        t
+        dS )Nvoc_type
+        voc_content)r   ZContentrg   r&   r   r   r   Fr   r   zVOC successfully submitted!r   z,An error occurred while submitting the VOC: r   r}   )r   r   r   r    r-   VOC_FILEr/   r0   r   r   r   r   r   r   )r   r   Znew_vocr2   Zvoc_datar   r#   r#   r$   
+        submit_voc  s(   
+        
+        
+        
+        
+        
+        
+        
+        r   z
+        /download_vocc                   C   
+           t tddS NT
+        as_attachment)r   r   r#   r#   r#   r$   
+        download_voc     
+        r   z	/downloadc                   C   r   r   )r   r{   r#   r#   r#   r$   download  r   r   z/download_usersc                   C   s,   t jdkr
+        ttddS tdd ttdS )Nrf   Tr   z1You do not have permission to download this file.r   r}   )r   r    r   r.   r   r   r   r#   r#   r#   r$   download_users  s   
+        
+        
+        
+        r   z/download_categoriesc                   C   r   r   )r   CATEGORIES_FILEr#   r#   r#   r$   download_categories  r   r   z
+        /categoriesc                  C   sF   t tddd} t| }W d    t|S 1 sw   Y  t|S )Nr&   r   r   )r-   r   r/   r0   r	   )r2   r
+           r#   r#   r$   get_categories  s
+           
+        
+        r   z/manage_categoriesc                  C   s   t jdkrtdd ttdS tjdkrVtjd } z,t	| }t
+        t
+        ddd	}tj
+        ||d
+        d
+        d
+         W d    n1 s;w   Y  td
+        d W n tj
+        yU   tdd Y nw t
+        t
+        ddd	
+        }t|}W d    n1 smw   Y  tdtj|d
+        d
+        d
+        dS )Nrf   z0You do not have permission to manage categories.r   r}   r   categories_contentr   r   r   Fr   r   z Categories updated successfully!r   zInvalid JSON format.r&   zmanage_categories.html)r
+           )r   r    r   r   r   r   r   r   r/   loadsr-   r   r   JSONDecodeErrorr0   r   dumps)r   r
+           r2   r#   r#   r$   manage_categories  s$   
+        
+        
+        
+        
+        
+        
+        
+        
+        r   z/change_passwordc                  C   s0  t jdkrt jd } t jd }t jd }ttj}|| s(tdd tdS ||kr5tdd tdS |	| t
+        t
+        dd	d
+        
+        }t
+        
+        |}W d    n1 sQw   Y  |D ]}|d
+         |jkrh|j|d
+        <  nqXt
+        t
+        d
+        d	d
+        }t
+        j||ddd W d    n1 sw   Y  tdd ttdS tdS )Nr   
+        old_password
+        new_passwordconfirm_passwordzOld password is incorrect.r   zNew passwords do not match.r&   r   r   r    r,   r   Fr   r   z
+        Password changed successfully!r   r}   zchange_password.html)r   r   r   r
+           r5   r   r    r8   r   r7   r-   r.   r/   r0   r!   r   r   r   r   )r   r   r   r4   r2   r3   r(   r#   r#   r$   change_password  s4   
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        r   __main__Ti\  )debugport)Lflaskr   r   r   r   r   r   r   r	   Z
+        flask_loginr
+           r
+           r
+           r
+           r   r   r/   r   Zmatplotlib.pyplotZpyplotrX   Zmatplotlib.font_managerZ
+        font_managerrV   ior   rZ   Zwerkzeug.securityr   r   r   r9   r   
+        secret_keyZ
+        login_managerZinit_appZ
+        login_viewr{   r.   r   r   rW   r   r   r-   r2   r   r
+           Z
+        user_loaderr=   rH   rd   router}   r   r   r   Zwerkzeug.utilsr   r   r   r   r   r   r   r   r   r   r   r   r   r   r   r   r   runr#   r#   r#   r$   <module>   s   (  
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        #
+         
+        
+        $
+        
+        
+        
+        
+        
+        F
+        L
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+
     templates/
-        login.html
-        ----------
+        manage_categories.html
+        ----------------------
         <!DOCTYPE html>
         <html lang="ko">
         <head>
            <meta charset="UTF-8">
-           <title>로그인</title>
+           <title>분류 관리</title>
            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+           <style>
+               .button-group {
+                   display: flex;
+                   justify-content: space-between;
+                   margin-top: 10px;
+               }
+               .button-group button,
+               .button-group input[type="submit"] {
+                   flex: 1;
+                   margin-right: 10px;
+               }
+               .button-group button:last-child {
+                   margin-right: 0;
+               }
+           </style>
         </head>
         <body>
            <div class="form-container">
                <h1>SSAT 출제 시스템</h1>
-               <h1>로그인</h1>
+               <h1>분류 관리</h1>
         
         
                {% with messages = get_flashed_messages(with_categories=true) %}
@@ -541,14 +1200,414 @@ Project structure
                {% endwith %}
         
         
-               <form action="{{ url_for('login') }}" method="POST">
-                   <label>사용자 ID: <input type="text" name="user_id" required></label><br>
-                   <label>비밀번호: <input type="password" name="password" required></label><br>
-                   <input type="submit" value="로그인">
+               <form action="{{ url_for('manage_categories') }}" method="POST">
+                   <label>분류 JSON:</label><br>
+                   <textarea name="categories_content" rows="20" style="width: 100%;">{{ categories }}</textarea><br>
+                   <div class="button-group">
+                       <input type="submit" value="저장">
+                       <button type="button" onclick="window.location.href='{{ url_for('index') }}'">나가기</button>
+                   </div>
                </form>
-               <p class="switch-form">계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
+               <a href="{{ url_for('download_categories') }}" class="download-btn">분류 JSON 다운로드</a>
            </div>
         </body>
+        </html>
+
+        edit_question.html
+        ------------------
+        <!DOCTYPE html>
+        <html lang="ko">
+        
+        <head>
+            <meta charset="UTF-8">
+            <title>문제 수정</title>
+            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+            <style>
+                .form-container {
+                    max-width: 800px;
+                    margin: 20px auto;
+                    padding: 20px;
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    background-color: #fff;
+                }
+            </style>
+            <script>
+                function showForm() {
+                    const type = document.querySelector('input[name="question_type"]:checked').value;
+                    const multipleChoice = document.getElementById('multiple_choice');
+                    const subjective = document.getElementById('subjective');
+                    const fillInTheBlank = document.getElementById('fill_in_the_blank');
+        
+                    multipleChoice.style.display = type === 'multiple' ? 'block' : 'none';
+                    subjective.style.display = type === 'subjective' ? 'block' : 'none';
+                    fillInTheBlank.style.display = type === 'fill_in_the_blank' ? 'block' : 'none';
+        
+                    // if(type === 'fill_in_the_blank'){
+                    //     resetBlanks()
+                    //     generateAnswerFields()
+                    // }
+        
+                    document.getElementsByName('mc_question')[0].disabled = type !== 'multiple';
+                    document.getElementsByName('mc_choices[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('mc_answers[]').forEach(field => field.disabled = type !== 'multiple');
+                    document.getElementsByName('sub_question')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('sub_answer')[0].disabled = type !== 'subjective';
+                    document.getElementsByName('fib_question')[0].disabled = type !== 'fill_in_the_blank';
+                    document.getElementsByName('fib_answer[]').forEach(field => field.disabled = type !== 'fill_in_the_blank');
+                }
+        
+                let originalBlanks = [];
+                let previousAnswers = [];
+                let initialQuestion = '';
+        
+                function generateAnswerFields() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    const question = textarea.value;
+                    const blankMatches = question.match(/{\s*}/g) || [];
+                    const blanks = blankMatches.map(blank => blank.length - 2); // 원래 공백 수 저장
+                    const answerDiv = document.querySelector('#fib_answers');
+        
+                    // 기존 매핑을 저장
+                    const existingAnswers = Array.from(document.getElementsByName('fib_answer[]')).map(input => input.value);
+                    // 매핑을 유지하며 삭제된 blank에 대응하는 정답 제거
+                    previousAnswers = previousAnswers.filter((_, index) => index < blanks.length);
+        
+                    if (answerDiv) {
+                        answerDiv.innerHTML = '';
+                        let updatedQuestion = question;
+                        let currentAnswerIndex = 0;
+        
+                        for (let i = 0; i < blanks.length; i++) {
+                            const label = document.createElement('label');
+                            label.innerText = `Blank#${i + 1}: `;
+                            const input = document.createElement('input');
+                            input.type = 'text';
+                            input.name = 'fib_answer[]';
+                            input.required = true;
+                            if (previousAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = previousAnswers[currentAnswerIndex];
+                            } else if (existingAnswers[currentAnswerIndex] !== undefined) {
+                                input.value = existingAnswers[currentAnswerIndex];
+                            }
+                            currentAnswerIndex++;
+                            answerDiv.appendChild(label);
+                            answerDiv.appendChild(input);
+                            answerDiv.appendChild(document.createElement('br'));
+        
+                            updatedQuestion = updatedQuestion.replace(/{\s*}/, `{Blank#${i + 1}}`);
+                        }
+        
+                        originalBlanks = blanks;
+                        initialQuestion = updatedQuestion;
+                        textarea.value = updatedQuestion;
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true; // 버튼 비활성화
+        
+                
+                    } else {
+                        console.error("Element with id 'fib_answers' not found.");
+                    }
+                }
+        
+                function resetBlanks() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    const blankMatches = textarea.value.match(/{\s*Blank#\d+\s*}|{\s*}/g) || [];
+        
+                    if (blankMatches.length === 0) {
+                        // 빈칸이 하나도 없는 경우 버튼 비활성화
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+                    } else {
+                        // 빈칸이 하나라도 있는 경우 버튼 활성화
+                        textarea.value = textarea.value.replace(/{\s*Blank#\d+\s*}|{\s*}/g, (match) => {
+                            let blankCount;
+                            if (match.includes('Blank#')) {
+                                const blankNumber = parseInt(match.match(/\d+/)[0], 10) - 1;
+                                blankCount = originalBlanks[blankNumber];
+                            } else {
+                                blankCount = match.length - 2; // 중괄호를 제외한 공백 수
+                            }
+                            return `{${' '.repeat(blankCount)}}`;
+                        });
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false; // 버튼 활성화
+                    }
+                }
+        
+        
+                function enableGenerateButton() {
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    if (textarea.value === initialQuestion) {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
+                    } else {
+                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false;
+                    }
+                }
+        
+                function updateAnswerOptions() {
+                    const choices = document.getElementsByName('mc_choices[]');
+                    const answerDiv = document.getElementById('mc_answers');
+                    answerDiv.innerHTML = '<h4>정답</h4>';
+        
+        
+                    choices.forEach((choice, index) => {
+                        if (choice.value.trim() !== '') {
+                            const label = document.createElement('label');
+                            label.style.marginRight = '10px';
+                            label.innerHTML = `<input type="checkbox" name="mc_answers[]" value="${index + 1}"> ${index + 1}`;
+                            answerDiv.appendChild(label);
+                        }
+                    });
+                }
+        
+                function isChecked(value) {
+                    let answers = {{ question.Answers | default([]) | tojson }};
+                    if (answers.length === 0 && '{{ question.Answer }}' !== '') {
+                        answers = ['{{ question.Answer }}'];
+                    }
+                    return answers.includes(value.toString()) ? 'checked' : '';
+                }
+        
+                function addChoice() {
+                    const otherChoicesDiv = document.getElementById('other_choices');
+                    const newChoice = document.createElement('div');
+                    newChoice.innerHTML = `<textarea name="fib_others[]" rows="2"></textarea>`;
+                    otherChoicesDiv.appendChild(newChoice);
+                }
+        
+                function removeChoice() {
+                    const otherChoicesDiv = document.getElementById('other_choices');
+                    const choices = otherChoicesDiv.getElementsByTagName('div');
+                    if (choices.length > 1) {
+                        otherChoicesDiv.removeChild(choices[choices.length - 1]);
+                    }
+                }
+        
+                function loadCategories() {
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const mainCategorySelect = document.getElementById('main_category');
+                            mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
+                            data.categories.forEach(category => {
+                                const option = document.createElement('option');
+                                option.value = category.name;
+                                option.text = category.name;
+                                mainCategorySelect.appendChild(option);
+                            });
+        
+                            const category = {
+                                main: "{{ question.Category.main if question.Category else '' }}",
+                                sub: "{{ question.Category.sub if question.Category else '' }}",
+                                minor: "{{ question.Category.minor if question.Category else '' }}"
+                            };
+                            if (category.main) {
+                                mainCategorySelect.value = category.main;
+                                updateSubcategories(() => {
+                                    const subCategorySelect = document.getElementById('sub_category');
+                                    if (category.sub) {
+                                        subCategorySelect.value = category.sub;
+                                        updateMinorCategories(() => {
+                                            const minorCategorySelect = document.getElementById('minor_category');
+                                            if (category.minor) {
+                                                minorCategorySelect.value = category.minor;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                }
+        
+                function updateSubcategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const subCategorySelect = document.getElementById('sub_category');
+                            subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                category.subcategories.forEach(subcategory => {
+                                    const option = document.createElement('option');
+                                    option.value = subcategory.name;
+                                    option.text = subcategory.name;
+                                    subCategorySelect.appendChild(option);
+                                });
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+                function updateMinorCategories(callback) {
+                    const mainCategory = document.getElementById('main_category').value;
+                    const subCategory = document.getElementById('sub_category').value;
+                    fetch('/categories')
+                        .then(response => response.json())
+                        .then(data => {
+                            const minorCategorySelect = document.getElementById('minor_category');
+                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
+                            const category = data.categories.find(category => category.name === mainCategory);
+                            if (category) {
+                                const subcategory = category.subcategories.find(sub => sub.name === subCategory);
+                                if (subcategory) {
+                                    subcategory.subcategories.forEach(minor => {
+                                        const option = document.createElement('option');
+                                        option.value = minor.name;
+                                        option.text = minor.name;
+                                        minorCategorySelect.appendChild(option);
+                                    });
+                                }
+                            }
+                            if (callback) callback();
+                        });
+                }
+        
+                function validateForm(event) {
+                    const questionType = document.querySelector('input[name="question_type"]:checked').value;
+                    if (questionType === 'multiple') {
+                        const answers = document.querySelectorAll('input[name="mc_answers[]"]:checked');
+                        if (answers.length === 0) {
+                            event.preventDefault();
+                            alert('객관식 문제의 경우, 적어도 하나의 정답을 선택해야 합니다.');
+                        }
+                    }
+                }
+        
+                document.addEventListener('DOMContentLoaded', () => {
+                    window.question = {{ question | tojson | safe }};
+                    initialQuestion = document.getElementsByName('fib_question')[0].value
+                    enableGenerateButton()
+                    loadCategories();
+                    document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
+                    document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
+                    updateAnswerOptions();
+                    showForm();
+                    const textarea = document.getElementsByName('fib_question')[0];
+                    textarea.addEventListener('focus', resetBlanks);
+                    textarea.addEventListener('input', enableGenerateButton);
+                    document.querySelector('form').addEventListener('submit', validateForm);
+                });
+            </script>
+        </head>
+        
+        <body>
+            <h1 id="main-title">SSAT 출제 시스템</h1>
+            <h1>문제 수정</h1>
+        
+            <div class="form-container">
+                <form action="/edit/{{ question.ID }}" method="POST">
+                    <label>
+                        <input type="radio" name="question_type" value="multiple" onclick="showForm()" {% if
+                            question.Type=='multiple' %}checked{% endif %}> 객관식
+                    </label>
+                    <label>
+                        <input type="radio" name="question_type" value="subjective" onclick="showForm()" {% if
+                            question.Type=='subjective' %}checked{% endif %}> 주관식
+                    </label>
+                    <label>
+                        <input type="radio" name="question_type" value="fill_in_the_blank" onclick="showForm()" {% if
+                            question.Type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
+                    </label>
+        
+                    <div id="multiple_choice"
+                        style="display: {% if question.Type == 'multiple' %}block{% else %}none{% endif %};">
+                        <h3>객관식 문제</h3>
+                        <label>문제: <textarea name="mc_question" rows="3" required>{{ question.Question }}</textarea></label><br>
+                        <div id="choices">
+                            {% if question.Choices %}
+                            {% for choice in question.Choices %}
+                            <div><label>{{ loop.index }}. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required>{{ choice }}</textarea></label><br></div>
+                            {% endfor %}
+                            {% else %}
+                            <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>2. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>3. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            <div><label>4. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
+                                        required></textarea></label><br></div>
+                            {% endif %}
+                        </div>
+                        <button type="button" onclick="addChoice()">보기 추가</button>
+                        <button type="button" onclick="removeChoice()">보기 제거</button><br>
+                        <div id="mc_answers">
+                            <h4>정답</h4>
+                        </div>
+                    </div>
+        
+                    <div id="subjective" style="display: {% if question.Type == 'subjective' %}block{% else %}none{% endif %};">
+                        <h3>주관식 문제</h3>
+                        <label>문제: <textarea name="sub_question" rows="3"
+                                required>{{ question.Question }}</textarea></label><br>
+                        <label>정답: <textarea name="sub_answer" rows="3"
+                                required>{{ question.Answers[0] if question.Answers else question.Answer }}</textarea></label><br>
+                    </div>
+        
+                    <div id="fill_in_the_blank"
+                        style="display: {% if question.Type == 'fill_in_the_blank' %}block{% else %}none{% endif %};">
+                        <h3>빈칸 채우기 문제</h3>
+                        <label>문제: (작성예: 한국의 수도는{ }이고, 미국의 수도는 { }이다.)<textarea name="fib_question" rows="3"
+                                required>{{ question.Question }}</textarea></label><br>
+                        <button type="button" onclick="generateAnswerFields()">정답 입력</button><br><br>
+                        
+                        <div id="fib_answers">
+                            {% if question.Type == 'fill_in_the_blank' %}
+                                {% for key, value in question.Answers.items() %}
+                                    {% if key.startswith('Blank#') %}
+                                            <label>{{ key }}</label>
+                                            <input name="fib_answer[]" type="text" value="{{value}}" required>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        <div id="other_choices">
+                            <h4>오답 보기 추가 (선택)</h4>
+                            {% if question.Type == 'fill_in_the_blank' %}
+                            {% for key, value in question.Answers.items() %}
+                                {% if key.startswith('other#') %}
+                                    <div>
+                                        <textarea name="fib_others[]" rows="2">{{ value }}</textarea>
+                                    </div> 
+                                {% endif %}
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                        
+                        <button type="button" onclick="addChoice()">보기 추가</button>
+                        <button type="button" onclick="removeChoice()">보기 삭제</button><br>
+                    </div>
+        
+                    <h3>분류</h3>
+                    <label>대분류:
+                        <select id="main_category" name="main_category">
+                            <option value="">대분류 선택</option>
+                        </select>
+                    </label><br>
+                    <label>중분류:
+                        <select id="sub_category" name="sub_category">
+                            <option value="">중분류 선택</option>
+                        </select>
+                    </label><br>
+                    <label>소분류:
+                        <select id="minor_category" name="minor_category">
+                            <option value="">소분류 선택</option>
+                        </select>
+                    </label><br>
+        
+                    <label>출처: <input type="text" name="source" value="{{ question.Source }}"></label><br>
+                    <label>태그: <textarea name="tags" rows="3">{{ question.Tags }}</textarea></label><br>
+        
+                    <input type="submit" value="수정">
+                </form>
+                <form action="{{ url_for('index') }}" method="GET">
+                    <button type="submit">취소</button>
+                </form>
+            </div>
+        </body>
+        
         </html>
 
         index.html
@@ -959,6 +2018,15 @@ Project structure
                     text-align: center;
                     margin-bottom: 20px;
                 }
+                #inputArea {
+                    /* width: 100%; */
+                    height: 100px;
+                }
+                #preview img {
+                    margin-top: 10px;
+                    max-width: 300px;  /* 이미지의 최대 너비를 100px로 설정 */
+                    max-height: 300px; /* 이미지의 최대 높이를 100px로 설정 */
+                }
             </style>
         </head>
         
@@ -1002,10 +2070,39 @@ Project structure
                 </label>
         
         
+        
+                <h1>Paste Image in Text Area</h1>
+                <textarea id="inputArea" placeholder="Paste text or image here..."></textarea>
+                <div id="preview"></div>
+            
+                <script>
+                    document.getElementById('inputArea').addEventListener('paste', function (event) {
+                        const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                        for (const item of items) {
+                            if (item.kind === 'file' && item.type.startsWith('image/')) {
+                                const blob = item.getAsFile();
+                                const reader = new FileReader();
+                                reader.onload = function (event) {
+                                    const img = document.createElement('img');
+                                    img.src = event.target.result;
+                                    document.getElementById('preview').appendChild(img);
+                                };
+                                reader.readAsDataURL(blob);
+                            }
+                        }
+                    });
+                </script>
+        
+        
                 <div id="multiple_choice"
                     style="display: {% if last_type == 'multiple' or last_type is none %}block{% else %}none{% endif %};">
                     <h3>객관식 문제</h3>
-                    <label>문제: <textarea name="mc_question" rows="3" required></textarea></label><br>
+                    <div id="question">
+                        <label for="mc_question">문제:</label>
+                    </div>
+                    <div id="question">
+                        <textarea name="mc_question" id="mc_question" rows="3" required></textarea>
+                    </div>
                     <div id="choices">
                         <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
                                     required></textarea></label><br></div>
@@ -1196,401 +2293,40 @@ Project structure
         
         </html>
 
-        edit_question.html
-        ------------------
+        register.html
+        -------------
         <!DOCTYPE html>
         <html lang="ko">
-        
         <head>
-            <meta charset="UTF-8">
-            <title>문제 수정</title>
-            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-            <style>
-                .form-container {
-                    max-width: 800px;
-                    margin: 20px auto;
-                    padding: 20px;
-                    border: 1px solid #ccc;
-                    border-radius: 5px;
-                    background-color: #fff;
-                }
-            </style>
-            <script>
-                function showForm() {
-                    const type = document.querySelector('input[name="question_type"]:checked').value;
-                    const multipleChoice = document.getElementById('multiple_choice');
-                    const subjective = document.getElementById('subjective');
-                    const fillInTheBlank = document.getElementById('fill_in_the_blank');
-        
-                    multipleChoice.style.display = type === 'multiple' ? 'block' : 'none';
-                    subjective.style.display = type === 'subjective' ? 'block' : 'none';
-                    fillInTheBlank.style.display = type === 'fill_in_the_blank' ? 'block' : 'none';
-        
-                    // if(type === 'fill_in_the_blank'){
-                    //     resetBlanks()
-                    //     generateAnswerFields()
-                    // }
-        
-                    document.getElementsByName('mc_question')[0].disabled = type !== 'multiple';
-                    document.getElementsByName('mc_choices[]').forEach(field => field.disabled = type !== 'multiple');
-                    document.getElementsByName('mc_answers[]').forEach(field => field.disabled = type !== 'multiple');
-                    document.getElementsByName('sub_question')[0].disabled = type !== 'subjective';
-                    document.getElementsByName('sub_answer')[0].disabled = type !== 'subjective';
-                    document.getElementsByName('fib_question')[0].disabled = type !== 'fill_in_the_blank';
-                    document.getElementsByName('fib_answer[]').forEach(field => field.disabled = type !== 'fill_in_the_blank');
-                }
-        
-                let originalBlanks = [];
-                let previousAnswers = [];
-                let initialQuestion = '';
-        
-                function generateAnswerFields() {
-                    const textarea = document.getElementsByName('fib_question')[0];
-                    const question = textarea.value;
-                    const blankMatches = question.match(/{\s*}/g) || [];
-                    const blanks = blankMatches.map(blank => blank.length - 2); // 원래 공백 수 저장
-                    const answerDiv = document.querySelector('#fib_answers');
-        
-                    // 기존 매핑을 저장
-                    const existingAnswers = Array.from(document.getElementsByName('fib_answer[]')).map(input => input.value);
-                    // 매핑을 유지하며 삭제된 blank에 대응하는 정답 제거
-                    previousAnswers = previousAnswers.filter((_, index) => index < blanks.length);
-        
-                    if (answerDiv) {
-                        answerDiv.innerHTML = '';
-                        let updatedQuestion = question;
-                        let currentAnswerIndex = 0;
-        
-                        for (let i = 0; i < blanks.length; i++) {
-                            const label = document.createElement('label');
-                            label.innerText = `Blank#${i + 1}: `;
-                            const input = document.createElement('input');
-                            input.type = 'text';
-                            input.name = 'fib_answer[]';
-                            input.required = true;
-                            if (previousAnswers[currentAnswerIndex] !== undefined) {
-                                input.value = previousAnswers[currentAnswerIndex];
-                            } else if (existingAnswers[currentAnswerIndex] !== undefined) {
-                                input.value = existingAnswers[currentAnswerIndex];
-                            }
-                            currentAnswerIndex++;
-                            answerDiv.appendChild(label);
-                            answerDiv.appendChild(input);
-                            answerDiv.appendChild(document.createElement('br'));
-        
-                            updatedQuestion = updatedQuestion.replace(/{\s*}/, `{Blank#${i + 1}}`);
-                        }
-        
-                        originalBlanks = blanks;
-                        initialQuestion = updatedQuestion;
-                        textarea.value = updatedQuestion;
-                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true; // 버튼 비활성화
-        
-                
-                    } else {
-                        console.error("Element with id 'fib_answers' not found.");
-                    }
-                }
-        
-                function resetBlanks() {
-                    const textarea = document.getElementsByName('fib_question')[0];
-                    const blankMatches = textarea.value.match(/{\s*Blank#\d+\s*}|{\s*}/g) || [];
-        
-                    if (blankMatches.length === 0) {
-                        // 빈칸이 하나도 없는 경우 버튼 비활성화
-                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
-                    } else {
-                        // 빈칸이 하나라도 있는 경우 버튼 활성화
-                        textarea.value = textarea.value.replace(/{\s*Blank#\d+\s*}|{\s*}/g, (match) => {
-                            let blankCount;
-                            if (match.includes('Blank#')) {
-                                const blankNumber = parseInt(match.match(/\d+/)[0], 10) - 1;
-                                blankCount = originalBlanks[blankNumber];
-                            } else {
-                                blankCount = match.length - 2; // 중괄호를 제외한 공백 수
-                            }
-                            return `{${' '.repeat(blankCount)}}`;
-                        });
-                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false; // 버튼 활성화
-                    }
-                }
-        
-        
-                function enableGenerateButton() {
-                    const textarea = document.getElementsByName('fib_question')[0];
-                    if (textarea.value === initialQuestion) {
-                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = true;
-                    } else {
-                        document.querySelector('button[onclick="generateAnswerFields()"]').disabled = false;
-                    }
-                }
-        
-                function updateAnswerOptions() {
-                    const choices = document.getElementsByName('mc_choices[]');
-                    const answerDiv = document.getElementById('mc_answers');
-                    answerDiv.innerHTML = '<h4>정답</h4>';
-        
-        
-                    choices.forEach((choice, index) => {
-                        if (choice.value.trim() !== '') {
-                            const label = document.createElement('label');
-                            label.style.marginRight = '10px';
-                            label.innerHTML = `<input type="checkbox" name="mc_answers[]" value="${index + 1}"> ${index + 1}`;
-                            answerDiv.appendChild(label);
-                        }
-                    });
-                }
-        
-                function isChecked(value) {
-                    let answers = {{ question.Answers | default([]) | tojson }};
-                    if (answers.length === 0 && '{{ question.Answer }}' !== '') {
-                        answers = ['{{ question.Answer }}'];
-                    }
-                    return answers.includes(value.toString()) ? 'checked' : '';
-                }
-        
-                function addChoice() {
-                    const otherChoicesDiv = document.getElementById('other_choices');
-                    const newChoice = document.createElement('div');
-                    newChoice.innerHTML = `<textarea name="fib_others[]" rows="2"></textarea>`;
-                    otherChoicesDiv.appendChild(newChoice);
-                }
-        
-                function removeChoice() {
-                    const otherChoicesDiv = document.getElementById('other_choices');
-                    const choices = otherChoicesDiv.getElementsByTagName('div');
-                    if (choices.length > 1) {
-                        otherChoicesDiv.removeChild(choices[choices.length - 1]);
-                    }
-                }
-        
-                function loadCategories() {
-                    fetch('/categories')
-                        .then(response => response.json())
-                        .then(data => {
-                            const mainCategorySelect = document.getElementById('main_category');
-                            mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
-                            data.categories.forEach(category => {
-                                const option = document.createElement('option');
-                                option.value = category.name;
-                                option.text = category.name;
-                                mainCategorySelect.appendChild(option);
-                            });
-        
-                            const category = {
-                                main: "{{ question.Category.main if question.Category else '' }}",
-                                sub: "{{ question.Category.sub if question.Category else '' }}",
-                                minor: "{{ question.Category.minor if question.Category else '' }}"
-                            };
-                            if (category.main) {
-                                mainCategorySelect.value = category.main;
-                                updateSubcategories(() => {
-                                    const subCategorySelect = document.getElementById('sub_category');
-                                    if (category.sub) {
-                                        subCategorySelect.value = category.sub;
-                                        updateMinorCategories(() => {
-                                            const minorCategorySelect = document.getElementById('minor_category');
-                                            if (category.minor) {
-                                                minorCategorySelect.value = category.minor;
-                                            }
-                                        });
-                                    }
-                                });
-                            }
-                        });
-                }
-        
-                function updateSubcategories(callback) {
-                    const mainCategory = document.getElementById('main_category').value;
-                    fetch('/categories')
-                        .then(response => response.json())
-                        .then(data => {
-                            const subCategorySelect = document.getElementById('sub_category');
-                            subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
-                            const minorCategorySelect = document.getElementById('minor_category');
-                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
-                            const category = data.categories.find(category => category.name === mainCategory);
-                            if (category) {
-                                category.subcategories.forEach(subcategory => {
-                                    const option = document.createElement('option');
-                                    option.value = subcategory.name;
-                                    option.text = subcategory.name;
-                                    subCategorySelect.appendChild(option);
-                                });
-                            }
-                            if (callback) callback();
-                        });
-                }
-        
-                function updateMinorCategories(callback) {
-                    const mainCategory = document.getElementById('main_category').value;
-                    const subCategory = document.getElementById('sub_category').value;
-                    fetch('/categories')
-                        .then(response => response.json())
-                        .then(data => {
-                            const minorCategorySelect = document.getElementById('minor_category');
-                            minorCategorySelect.innerHTML = '<option value="">소분류 선택</option>';
-                            const category = data.categories.find(category => category.name === mainCategory);
-                            if (category) {
-                                const subcategory = category.subcategories.find(sub => sub.name === subCategory);
-                                if (subcategory) {
-                                    subcategory.subcategories.forEach(minor => {
-                                        const option = document.createElement('option');
-                                        option.value = minor.name;
-                                        option.text = minor.name;
-                                        minorCategorySelect.appendChild(option);
-                                    });
-                                }
-                            }
-                            if (callback) callback();
-                        });
-                }
-        
-                function validateForm(event) {
-                    const questionType = document.querySelector('input[name="question_type"]:checked').value;
-                    if (questionType === 'multiple') {
-                        const answers = document.querySelectorAll('input[name="mc_answers[]"]:checked');
-                        if (answers.length === 0) {
-                            event.preventDefault();
-                            alert('객관식 문제의 경우, 적어도 하나의 정답을 선택해야 합니다.');
-                        }
-                    }
-                }
-        
-                document.addEventListener('DOMContentLoaded', () => {
-                    window.question = {{ question | tojson | safe }};
-                    initialQuestion = window.question.Question
-                    enableGenerateButton()
-                    loadCategories();
-                    document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
-                    document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
-                    updateAnswerOptions();
-                    showForm();
-                    const textarea = document.getElementsByName('fib_question')[0];
-                    textarea.addEventListener('focus', resetBlanks);
-                    textarea.addEventListener('input', enableGenerateButton);
-                    document.querySelector('form').addEventListener('submit', validateForm);
-                });
-            </script>
+           <meta charset="UTF-8">
+           <title>회원가입</title>
+           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
         </head>
-        
         <body>
-            <h1 id="main-title">SSAT 출제 시스템</h1>
-            <h1>문제 수정</h1>
+           <div class="form-container">
+               <h1>SSAT 출제 시스템</h1>
+               <h1>회원가입</h1>
         
-            <div class="form-container">
-                <form action="/edit/{{ question.ID }}" method="POST">
-                    <label>
-                        <input type="radio" name="question_type" value="multiple" onclick="showForm()" {% if
-                            question.Type=='multiple' %}checked{% endif %}> 객관식
-                    </label>
-                    <label>
-                        <input type="radio" name="question_type" value="subjective" onclick="showForm()" {% if
-                            question.Type=='subjective' %}checked{% endif %}> 주관식
-                    </label>
-                    <label>
-                        <input type="radio" name="question_type" value="fill_in_the_blank" onclick="showForm()" {% if
-                            question.Type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
-                    </label>
         
-                    <div id="multiple_choice"
-                        style="display: {% if question.Type == 'multiple' %}block{% else %}none{% endif %};">
-                        <h3>객관식 문제</h3>
-                        <label>문제: <textarea name="mc_question" rows="3" required>{{ question.Question }}</textarea></label><br>
-                        <div id="choices">
-                            {% if question.Choices %}
-                            {% for choice in question.Choices %}
-                            <div><label>{{ loop.index }}. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
-                                        required>{{ choice }}</textarea></label><br></div>
-                            {% endfor %}
-                            {% else %}
-                            <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
-                                        required></textarea></label><br></div>
-                            <div><label>2. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
-                                        required></textarea></label><br></div>
-                            <div><label>3. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
-                                        required></textarea></label><br></div>
-                            <div><label>4. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
-                                        required></textarea></label><br></div>
-                            {% endif %}
-                        </div>
-                        <button type="button" onclick="addChoice()">보기 추가</button>
-                        <button type="button" onclick="removeChoice()">보기 제거</button><br>
-                        <div id="mc_answers">
-                            <h4>정답</h4>
-                        </div>
-                    </div>
+               {% with messages = get_flashed_messages(with_categories=true) %}
+                   {% if messages %}
+                       <ul class="flashes">
+                           {% for category, message in messages %}
+                               <li class="{{ category }}">{{ message }}</li>
+                           {% endfor %}
+                       </ul>
+                   {% endif %}
+               {% endwith %}
         
-                    <div id="subjective" style="display: {% if question.Type == 'subjective' %}block{% else %}none{% endif %};">
-                        <h3>주관식 문제</h3>
-                        <label>문제: <textarea name="sub_question" rows="3"
-                                required>{{ question.Question }}</textarea></label><br>
-                        <label>정답: <textarea name="sub_answer" rows="3"
-                                required>{{ question.Answers[0] if question.Answers else question.Answer }}</textarea></label><br>
-                    </div>
         
-                    <div id="fill_in_the_blank"
-                        style="display: {% if question.Type == 'fill_in_the_blank' %}block{% else %}none{% endif %};">
-                        <h3>빈칸 채우기 문제</h3>
-                        <label>문제: (작성예: 한국의 수도는{ }이고, 미국의 수도는 { }이다.)<textarea name="fib_question" rows="3"
-                                required>{{ question.Question }}</textarea></label><br>
-                        <button type="button" onclick="generateAnswerFields()">정답 입력</button><br><br>
-                        
-                        <div id="fib_answers">
-                            {% if question.Type == 'fill_in_the_blank' %}
-                                {% for key, value in question.Answers.items() %}
-                                    {% if key.startswith('Blank#') %}
-                                            <label>{{ key }}</label>
-                                            <input name="fib_answer[]" type="text" value="{{value}}" required>
-                                    {% endif %}
-                                {% endfor %}
-                            {% endif %}
-                        </div>
-                        <div id="other_choices">
-                            <h4>오답 보기 추가 (선택)</h4>
-                            {% if question.Type == 'fill_in_the_blank' %}
-                            {% for key, value in question.Answers.items() %}
-                                {% if key.startswith('other#') %}
-                                    <div>
-                                        <textarea name="fib_others[]" rows="2">{{ value }}</textarea>
-                                    </div> 
-                                {% endif %}
-                            {% endfor %}
-                            {% endif %}
-                        </div>
-                        
-                        <button type="button" onclick="addChoice()">보기 추가</button>
-                        <button type="button" onclick="removeChoice()">보기 삭제</button><br>
-                    </div>
-        
-                    <h3>분류</h3>
-                    <label>대분류:
-                        <select id="main_category" name="main_category">
-                            <option value="">대분류 선택</option>
-                        </select>
-                    </label><br>
-                    <label>중분류:
-                        <select id="sub_category" name="sub_category">
-                            <option value="">중분류 선택</option>
-                        </select>
-                    </label><br>
-                    <label>소분류:
-                        <select id="minor_category" name="minor_category">
-                            <option value="">소분류 선택</option>
-                        </select>
-                    </label><br>
-        
-                    <label>출처: <input type="text" name="source" value="{{ question.Source }}"></label><br>
-                    <label>태그: <textarea name="tags" rows="3">{{ question.Tags }}</textarea></label><br>
-        
-                    <input type="submit" value="수정">
-                </form>
-                <form action="{{ url_for('index') }}" method="GET">
-                    <button type="submit">취소</button>
-                </form>
-            </div>
+               <form action="{{ url_for('register') }}" method="POST">
+                   <label>사용자 ID: <input type="text" name="user_id" required></label><br>
+                   <label>비밀번호: <input type="password" name="password" required></label><br>
+                   <input type="submit" value="회원가입">
+               </form>
+               <p class="switch-form">이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+           </div>
         </body>
-        
         </html>
 
         change_password.html
@@ -1632,34 +2368,19 @@ Project structure
         </body>
         </html>
 
-        manage_categories.html
-        ----------------------
+        login.html
+        ----------
         <!DOCTYPE html>
         <html lang="ko">
         <head>
            <meta charset="UTF-8">
-           <title>분류 관리</title>
+           <title>로그인</title>
            <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-           <style>
-               .button-group {
-                   display: flex;
-                   justify-content: space-between;
-                   margin-top: 10px;
-               }
-               .button-group button,
-               .button-group input[type="submit"] {
-                   flex: 1;
-                   margin-right: 10px;
-               }
-               .button-group button:last-child {
-                   margin-right: 0;
-               }
-           </style>
         </head>
         <body>
            <div class="form-container">
                <h1>SSAT 출제 시스템</h1>
-               <h1>분류 관리</h1>
+               <h1>로그인</h1>
         
         
                {% with messages = get_flashed_messages(with_categories=true) %}
@@ -1673,51 +2394,12 @@ Project structure
                {% endwith %}
         
         
-               <form action="{{ url_for('manage_categories') }}" method="POST">
-                   <label>분류 JSON:</label><br>
-                   <textarea name="categories_content" rows="20" style="width: 100%;">{{ categories }}</textarea><br>
-                   <div class="button-group">
-                       <input type="submit" value="저장">
-                       <button type="button" onclick="window.location.href='{{ url_for('index') }}'">나가기</button>
-                   </div>
-               </form>
-               <a href="{{ url_for('download_categories') }}" class="download-btn">분류 JSON 다운로드</a>
-           </div>
-        </body>
-        </html>
-
-        register.html
-        -------------
-        <!DOCTYPE html>
-        <html lang="ko">
-        <head>
-           <meta charset="UTF-8">
-           <title>회원가입</title>
-           <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-        </head>
-        <body>
-           <div class="form-container">
-               <h1>SSAT 출제 시스템</h1>
-               <h1>회원가입</h1>
-        
-        
-               {% with messages = get_flashed_messages(with_categories=true) %}
-                   {% if messages %}
-                       <ul class="flashes">
-                           {% for category, message in messages %}
-                               <li class="{{ category }}">{{ message }}</li>
-                           {% endfor %}
-                       </ul>
-                   {% endif %}
-               {% endwith %}
-        
-        
-               <form action="{{ url_for('register') }}" method="POST">
+               <form action="{{ url_for('login') }}" method="POST">
                    <label>사용자 ID: <input type="text" name="user_id" required></label><br>
                    <label>비밀번호: <input type="password" name="password" required></label><br>
-                   <input type="submit" value="회원가입">
+                   <input type="submit" value="로그인">
                </form>
-               <p class="switch-form">이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+               <p class="switch-form">계정이 없으신가요? <a href="{{ url_for('register') }}">회원가입</a></p>
            </div>
         </body>
         </html>
@@ -1766,7 +2448,7 @@ Project structure
         input[type="password"],
         input[type="number"],
         textarea {
-           width: 100%;
+           /* width: 100%; */
            padding: 8px;
            margin-top: 5px;
            margin-bottom: 20px;
@@ -1834,8 +2516,23 @@ Project structure
         #choices textarea {
            flex: 1;
            margin-left: 10px;
+           margin-bottom: -20px;
         }
         
+        #question {
+           display: flex;
+           margin-bottom: 20px;
+        }
+        
+        #question label {
+           display: block;
+           margin-bottom: -20px;
+        }
+        
+        
+        #question textarea {
+           flex: 1;
+        }
         
         .flashes {
            list-style-type: none;

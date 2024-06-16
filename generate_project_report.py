@@ -65,7 +65,8 @@ if __name__ == "__main__":
         'generate_project_report.py',
         'users.json',
         'voc.json',
-        'project_structure_and_contents.txt'
+        'project_structure_and_contents.txt',
+        'google-cloud-cli-478.0.0-linux-x86_64.tar.gz'
     ]
     
     # 제외할 폴더들 리스트
@@ -73,7 +74,9 @@ if __name__ == "__main__":
         'image_data',
         'static/image_data',
         '.git',
-        '..'
+        '..',
+        'google-cloud-sdk',
+        'guiroman_venv'
     ]
     
     # 절대 경로로 변환
