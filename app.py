@@ -175,24 +175,41 @@ def register():
    return render_template('register.html')
 
 
+# @app.route('/login', methods=['GET', 'POST'])
+# def login():
+#    if request.method == 'POST':
+#        user_id = request.form['user_id']
+#        password = request.form['password']
+#        user = User.get(user_id)
+#        if user is None or not user.check_password(password):
+#            flash('Invalid user ID or password.', 'error')
+#        else:
+#            login_user(user)
+#            response = redirect(url_for('index'))
+#            response.set_cookie('last_type', '', expires=0)
+#            response.set_cookie('last_main_category', '', expires=0)
+#            response.set_cookie('last_sub_category', '', expires=0)
+#            response.set_cookie('last_minor_category', '', expires=0)
+#            response.set_cookie('last_tags', '', expires=0)
+#            return response
+#    return render_template('login.html')
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-   if request.method == 'POST':
-       user_id = request.form['user_id']
-       password = request.form['password']
-       user = User.get(user_id)
-       if user is None or not user.check_password(password):
-           flash('Invalid user ID or password.', 'error')
-       else:
-           login_user(user)
-           response = redirect(url_for('index'))
-           response.set_cookie('last_type', '', expires=0)
-           response.set_cookie('last_main_category', '', expires=0)
-           response.set_cookie('last_sub_category', '', expires=0)
-           response.set_cookie('last_minor_category', '', expires=0)
-           response.set_cookie('last_tags', '', expires=0)
-           return response
-   return render_template('login.html')
+    if request.method == 'POST':
+        try:
+            user_id = request.form['user_id']
+            password = request.form['password']
+            user = User.get(user_id)
+            if user is None or not user.check_password(password):
+                flash('Invalid user ID or password.', 'error')
+                return redirect(url_for('login'))
+            login_user(user)
+            return redirect(url_for('index'))
+        except Exception as e:
+            flash(f'An error occurred: {str(e)}', 'error')
+            return redirect(url_for('login'))
+    return render_template('login.html')
 
 
 @app.route('/logout')
@@ -210,10 +227,7 @@ def logout():
 
 from werkzeug.utils import secure_filename
 
-UPLOAD_FOLDER = 'image_data'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure the upload folder exists
+UPLOAD_FOLDER = '/tmp/image_data'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 

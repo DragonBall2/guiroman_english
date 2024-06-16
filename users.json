@@ -6,5 +6,9 @@
     {
         "id": "admin",
         "password": "scrypt:32768:8:1$zWcjnOGjMaSujfLF$d4d0d44a7011ddfa88f4c086037ab186874dfbb7e2f84d2fa0ac261e1d3210adbc26c4720361f19c45491a1ba91375efe05a1dc0f05e5afd0ee23a8bb90e59aa"
+    },
+    {
+        "id": "kkk",
+        "password": "pbkdf2:sha256:260000$pbp2BxB51K7363TP$64831adba54a2e434c5cfebecd6baa0ccfa03020fa809ee464ab78e50c8350ea"
     }
 ]
