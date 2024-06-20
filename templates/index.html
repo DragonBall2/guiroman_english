@@ -404,14 +404,45 @@
             text-align: center;
             margin-bottom: 20px;
         }
-        #inputArea {
-            /* width: 100%; */
-            height: 100px;
+        
+        #mc_question {
+            width: 100%;
+            height: 200px;
         }
-        #preview img {
+        #preview_mc_question {
+            text-align: center;
             margin-top: 10px;
-            max-width: 300px;  /* 이미지의 최대 너비를 100px로 설정 */
-            max-height: 300px; /* 이미지의 최대 높이를 100px로 설정 */
+            max-width: 500px;  /* 이미지의 최대 너비를 100px로 설정 */
+            max-height: 500px; /* 이미지의 최대 높이를 100px로 설정 */
+        }
+        .img-container {
+            display: inline-block;
+            position: relative;
+        }
+        .img-container img {
+            margin-top: -20px;
+            max-width: 300px;
+            max-height: 300px;
+            margin-bottom: 30px;
+        }
+        .close-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: red;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transform: translate(50%, -50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+            line-height: 1;
         }
     </style>
 </head>
@@ -455,27 +486,64 @@
                 last_type=='fill_in_the_blank' %}checked{% endif %}> 빈칸 채우기
         </label>
 
-
-
-        <h1>Paste Image in Text Area</h1>
-        <textarea id="inputArea" placeholder="Paste text or image here..."></textarea>
-        <div id="preview"></div>
     
         <script>
-            document.getElementById('inputArea').addEventListener('paste', function (event) {
-                const items = (event.clipboardData || event.originalEvent.clipboardData).items;
-                for (const item of items) {
-                    if (item.kind === 'file' && item.type.startsWith('image/')) {
-                        const blob = item.getAsFile();
-                        const reader = new FileReader();
-                        reader.onload = function (event) {
-                            const img = document.createElement('img');
-                            img.src = event.target.result;
-                            document.getElementById('preview').appendChild(img);
-                        };
-                        reader.readAsDataURL(blob);
+            // document.getElementById('inputArea').addEventListener('paste', function (event) {
+            //     const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+            //     for (const item of items) {
+            //         if (item.kind === 'file' && item.type.startsWith('image/')) {
+            //             const blob = item.getAsFile();
+            //             const reader = new FileReader();
+            //             reader.onload = function (event) {
+            //                 const img = document.createElement('img');
+            //                 img.src = event.target.result;
+            //                 document.getElementById('preview').appendChild(img);
+            //             };
+            //             reader.readAsDataURL(blob);
+            //         }
+            //     }
+            // });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                function handlePaste(event) {
+                    const inputArea = event.target;
+                    const parentDiv = inputArea.closest('#question');
+                    const previewDiv = parentDiv.querySelector('#preview_mc_question');
+                    const imageDataInput = parentDiv.querySelector('#imageData');
+                    const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                    for (const item of items) {
+                        if (item.kind === 'file' && item.type.startsWith('image/')) {
+                            const blob = item.getAsFile();
+                            const reader = new FileReader();
+                            reader.onload = function(event) {
+                                // 기존 이미지와 컨텐츠 삭제
+                                previewDiv.innerHTML = '';
+                                imageDataInput.value = ''; // 이미지 데이터 삭제
+
+                                const imgContainer = document.createElement('div');
+                                imgContainer.className = 'img-container';
+                                const img = document.createElement('img');
+                                img.src = event.target.result;
+                                const closeBtn = document.createElement('button');
+                                closeBtn.textContent = 'x';
+                                closeBtn.className = 'close-btn';
+                                closeBtn.onclick = function() {
+                                    previewDiv.removeChild(imgContainer);
+                                    imageDataInput.value = '';  // 이미지 데이터 삭제
+                                };
+                                imgContainer.appendChild(img);
+                                imgContainer.appendChild(closeBtn);
+                                previewDiv.appendChild(imgContainer);
+                                imageDataInput.value = event.target.result;  // base64 데이터 저장
+                            };
+                            reader.readAsDataURL(blob);
+                        }
                     }
                 }
+
+                document.querySelectorAll('#mc_question').forEach(function(inputArea) {
+                    inputArea.addEventListener('paste', handlePaste);
+                    });
             });
         </script>
 
@@ -488,7 +556,10 @@
             </div>
             <div id="question">
                 <textarea name="mc_question" id="mc_question" rows="3" required></textarea>
+                <input type="hidden" id="imageData" name="image_data">   <br>             
+                <div id="preview_mc_question"></div>
             </div>
+            <div id="preview"></div>
             <div id="choices">
                 <div><label>1. <textarea name="mc_choices[]" rows="3" oninput="updateAnswerOptions()"
                             required></textarea></label><br></div>
