@@ -96,16 +96,38 @@ def autopct_format(values):
    return my_format
 
 
-def generate_category_pie_chart(data):
+def generate_category_pie_chart(data, main_selected ='', sub_selected=''):
     category_count = {}
-    total_questions = len(data)
-    for question in data:
-        if 'Category' in question and 'main' in question['Category']:
-            category = question['Category']['main'] if question['Category']['main'] else '미분류'
-            if category in category_count:
-                category_count[category] += 1
-            else:
-                category_count[category] = 1
+    # import pdb; pdb.set_trace()
+    if not main_selected:
+        for question in data:
+            if 'Category' in question and 'main' in question['Category']:
+                category = question['Category']['main'] if question['Category']['main'] else '미분류'
+                if category in category_count:
+                    category_count[category] += 1
+                else:
+                    category_count[category] = 1
+    else:
+        main_selected_data = [item for item in data if item["Category"]["main"] == main_selected]
+        if not sub_selected:
+            for question in main_selected_data:
+                if 'Category' in question and 'sub' in question['Category']:
+                    category = question['Category']['sub'] if question['Category']['sub'] else '미분류'
+                    if category in category_count:
+                        category_count[category] += 1
+                    else:
+                        category_count[category] = 1
+        else:
+            sub_selected_data = [item for item in data if item["Category"]["sub"] == sub_selected]
+            for question in sub_selected_data:
+                if 'Category' in question and 'minor' in question['Category']:
+                    category = question['Category']['minor'] if question['Category']['minor'] else '미분류'
+                    if category in category_count:
+                        category_count[category] += 1
+                    else:
+                        category_count[category] = 1
+
+
 
     labels = list(category_count.keys())
     sizes = list(category_count.values())
@@ -127,7 +149,15 @@ def generate_category_pie_chart(data):
     plt.close()
     return img_base64
 
-
+@app.route('/updateChart', methods=['GET'])
+@login_required
+def updateChart():
+    # import pdb; pdb.set_trace()
+    data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
+    main_selected = request.args.get('mainCategory', 1)
+    sub_selected = request.args.get('subCategory', 1)
+    chart_base64 = generate_category_pie_chart(data, main_selected, sub_selected)
+    return chart_base64
 
 
 
@@ -200,6 +230,7 @@ def login():
            response.set_cookie('last_sub_category', '', expires=0)
            response.set_cookie('last_minor_category', '', expires=0)
            response.set_cookie('last_tags', '', expires=0)
+
            return response
    return render_template('login.html')
 
@@ -224,14 +255,15 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
-   logout_user()
-   response = redirect(url_for('login'))
-   response.set_cookie('last_type', '', expires=0)
-   response.set_cookie('last_main_category', '', expires=0)
-   response.set_cookie('last_sub_category', '', expires=0)
-   response.set_cookie('last_minor_category', '', expires=0)
-   response.set_cookie('last_tags', '', expires=0)
-   return response
+    logout_user()
+    response = redirect(url_for('login'))
+    response.set_cookie('last_type', '', expires=0)
+    response.set_cookie('last_main_category', '', expires=0)
+    response.set_cookie('last_sub_category', '', expires=0)
+    response.set_cookie('last_minor_category', '', expires=0)
+    response.set_cookie('last_tags', '', expires=0)
+
+    return response
 
 
 from werkzeug.utils import secure_filename
@@ -278,6 +310,8 @@ def submit_question():
     tags = request.form['tags']
     source = request.form['source']
 
+
+
     try:
         data = json.loads(download_from_gcs(bucket_name, 'data.json').decode('utf-8'))
 
@@ -312,6 +346,7 @@ def submit_question():
         response.set_cookie('last_sub_category', sub_category)
         response.set_cookie('last_minor_category', minor_category)
         response.set_cookie('last_tags', tags)
+
         return response
     except Exception as e:
         flash(f'An error occurred while submitting the question: {e}', 'error')

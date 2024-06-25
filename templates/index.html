@@ -191,6 +191,46 @@
                 });
         }
 
+        function loadChartCategories() {
+            fetch('/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const mainCategorySelect = document.getElementById('chart_main_category');
+                    mainCategorySelect.innerHTML = '<option value="">대분류 선택</option>';
+                    data.categories.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category.name;
+                        option.text = category.name;
+                        mainCategorySelect.appendChild(option);
+                    });
+
+                    // const lastMainCategory = '{{ request.cookies.get("last_chart_main_category", "") }}';
+                    // const lastSubCategory = '{{ request.cookies.get("last_chart_sub_category", "") }}';
+
+                    // if (lastMainCategory) {
+                    //     mainCategorySelect.value = lastMainCategory;
+                    //     updateChartSubcategories(() => {
+                    //         const subCategorySelect = document.getElementById('chart_sub_category');
+                    //         if (lastSubCategory) {
+                    //             subCategorySelect.value = lastSubCategory;
+                    //         }
+                    //     });
+                    // }
+
+                });
+        }
+
+        function updateChart() {
+            const mainCategory = document.getElementById('chart_main_category').value;
+            const subCategory = document.getElementById('chart_sub_category').value;
+            fetch(`/updateChart?mainCategory=${mainCategory}&subCategory=${subCategory}`)
+                .then(response => response.text())
+                .then(chartBase64 => {
+                    document.getElementById('chartImage').src = `data:image/png;base64,${chartBase64}`;
+                })
+                .catch(error => console.error('Error updating chart:', error));
+        }
+
 
         function updateSubcategories(callback) {
             const mainCategory = document.getElementById('main_category').value;
@@ -240,6 +280,27 @@
         }
 
 
+
+        function updateChartSubcategories() {
+            const mainCategory = document.getElementById('chart_main_category').value;
+            return fetch('/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const subCategorySelect = document.getElementById('chart_sub_category');
+                    subCategorySelect.innerHTML = '<option value="">중분류 선택</option>';
+                    const category = data.categories.find(category => category.name === mainCategory);
+                    if (category) {
+                        category.subcategories.forEach(subcategory => {
+                            const option = document.createElement('option');
+                            option.value = subcategory.name;
+                            option.text = subcategory.name;
+                            subCategorySelect.appendChild(option);
+                        });
+                    }
+                });
+        }
+
+
         function validateForm(event) {
             const questionType = document.querySelector('input[name="question_type"]:checked').value;
             if (questionType === 'multiple') {
@@ -253,9 +314,16 @@
 
 
         document.addEventListener('DOMContentLoaded', () => {
-            loadCategories();
             document.getElementById('main_category').addEventListener('change', () => updateSubcategories());
             document.getElementById('sub_category').addEventListener('change', () => updateMinorCategories());
+            document.getElementById('chart_main_category').addEventListener('change', () => {
+                updateChartSubcategories().then(() => updateChart());
+            });
+            document.getElementById('chart_sub_category').addEventListener('change', () => {
+                updateChart();
+            });
+            loadCategories();
+            loadChartCategories()
             document.querySelector('form').addEventListener('submit', validateForm);
             showForm();
         });
@@ -743,8 +811,19 @@
 
 
     <div class="chart-container">
+        <h3>분류</h3>
+        <label>대분류:
+            <select id="chart_main_category" name="chart_main_category">
+                <option value="">대분류 선택</option>
+            </select>
+        </label><br>
+        <label>중분류:
+            <select id="chart_sub_category" name="chart_sub_category">
+                <option value="">중분류 선택</option>
+            </select>
+        </label><br>
         <h2 class="chart-title">출제 현황 (Total: {{ total_questions }})</h2>
-        <img src="data:image/png;base64,{{ chart_base64 }}" alt="출제 현황">
+        <img id="chartImage" src="data:image/png;base64,{{ chart_base64 }}" alt="출제 현황">
     </div>
 </body>
 
