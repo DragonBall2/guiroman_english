@@ -323,10 +323,26 @@
                 updateChart();
             });
             loadCategories();
-            loadChartCategories()
+            loadChartCategories();
             document.querySelector('form').addEventListener('submit', validateForm);
             showForm();
         });
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            // Function to simulate click on the submit button
+            function simulateSubmitButtonClick() {
+                const submitButton = document.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.click();
+                }
+            }
+
+            // Add an event listener for Bluetooth events
+            navigator.bluetooth.requestDevice({acceptAllDevices: true})
+                .then(device => {
+                    device.addEventListener('gattserverdisconnected', simulateSubmitButtonClick);
+                })
+                .catch(error => console.log(error));
     </script>
     <style>
         .popup {
